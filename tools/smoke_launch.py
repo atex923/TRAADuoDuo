@@ -22,4 +22,4 @@ with tempfile.TemporaryDirectory() as directory:
     with patch('traaduoduo.app.Window', SmokeWindow), patch('traaduoduo.app.QStandardPaths.writableLocation', return_value=directory):
         result = main()
         assert result == 0
-print('Real entry point: launched and closed successfully (offscreen).')
+print('Real entry point: launched and closed successfully; Qt platform='+os.environ.get('QT_QPA_PLATFORM','default')+'.')

@@ -31,7 +31,11 @@ def calculate_day(day, context):
         raise ValueError('未知工期模式')
     if day in context.railway:
         return Decimal(0), '鐵路輸運停工'
-    morning, afternoon, note = context.weather.get(day, ('0', '0', ''))
+    weather = context.weather.get(day, ('0', '0', '', '0'))
+    morning, afternoon, note = weather[:3]
+    no_count = weather[3] if len(weather)>3 else '0'
+    if decimal(no_count or '0') == 1:
+        return Decimal(0), '不計工期'
     if note.strip() == '-1':
         return Decimal(0), '晴雨備註 -1：不計工期'
     base = Decimal(int(context.mode == '日曆天' or day.weekday() < 5))
@@ -46,7 +50,7 @@ def calculate_day(day, context):
         raise ValueError('晴雨扣除值不可小於零')
     deduction = Decimal(1) if morning >= 1 else Decimal(int(morning > 0)) + Decimal('.5') * int(afternoon > 0)
     if deduction:
-        reasons.append(f'晴雨扣除 {deduction}（legacy）')
+        reasons.append(f'晴雨扣除 {deduction}')
     return max(Decimal(0), base - deduction), '、'.join(reasons)
 
 
@@ -62,8 +66,10 @@ def count_workdays(start, end, context):
 
 def calculate_finish(start, days, context):
     remaining = decimal(days)
-    if remaining <= 0:
-        raise ValueError('工期須大於零')
+    if remaining <= 0 or remaining != remaining.to_integral_value():
+        raise ValueError('工期須為正整數')
+    if context.mode == '日曆天':
+        return start + timedelta(days=int(remaining)-1)
     for offset in range(36600):
         current = start + timedelta(days=offset)
         remaining -= calculate_day(current, context)[0]

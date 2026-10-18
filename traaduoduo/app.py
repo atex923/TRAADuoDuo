@@ -6,6 +6,7 @@ import sys
 from PySide6.QtCore import QTimer, QStandardPaths
 from PySide6.QtWidgets import QApplication
 from .ui import Window
+from .instance import MacInstance
 
 
 def main():
@@ -17,12 +18,19 @@ def main():
     app.setApplicationName('TRAADuoDuo')
     directory = Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppLocalDataLocation))
     directory.mkdir(parents=True, exist_ok=True)
+    instance = MacInstance(directory)
+    if not instance.owner:
+        return 0
     logging.basicConfig(level=logging.INFO, handlers=[RotatingFileHandler(directory / 'app.log', maxBytes=1_000_000, backupCount=2, encoding='utf-8')])
     window = Window()
+    instance.activate(window)
     window.show()
     last = args.project or window.settings.value('last_project', '')
     if last and Path(last).is_file():
         QTimer.singleShot(0, lambda: window.open_path(last))
     elif last:
         window.message.setText('上次資料庫不存在；請重新選擇或新增工程案')
-    return app.exec()
+    try:
+        return app.exec()
+    finally:
+        instance.close()

@@ -75,7 +75,7 @@ class StoreTests(unittest.TestCase):
             with connection:
                 connection.execute('BEGIN IMMEDIATE')
                 migrate_new(connection)
-            self.assertEqual(connection.execute('PRAGMA user_version').fetchone()[0], 1)
+            self.assertEqual(connection.execute('PRAGMA user_version').fetchone()[0], 8)
 
     def test_edit_locks_undo_ten_and_saved_state(self):
         session = EditSession(self.payload['pages'])
