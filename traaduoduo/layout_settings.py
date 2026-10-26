@@ -1,5 +1,6 @@
 """Local UI preferences; never stored in project business data."""
 import json
+from .presentation import compact_header
 from PySide6.QtCore import QObject, QEvent, Qt, QTimer
 from PySide6.QtWidgets import QHeaderView, QTableWidget, QTreeWidget, QLineEdit, QComboBox, QPlainTextEdit, QWidget, QDialog, QApplication
 
@@ -21,6 +22,7 @@ class LayoutSettings(QObject):
         table.setProperty('widthSettingsInstalled',True)
         table.setProperty('widthSettingsKey',key)
         header=table.header() if isinstance(table,QTreeWidget) else table.horizontalHeader()
+        compact_header(header)
         fields=fields or [str(i) for i in range(table.columnCount())]
         defaults=[header.sectionSize(i) for i in range(len(fields))]
         self.defaults[key]=(table,fields,defaults)
@@ -66,6 +68,9 @@ class LayoutSettings(QObject):
             for name,field in fields.items():
                 if isinstance(field,(QLineEdit,QComboBox,QPlainTextEdit)):
                     self.field(field,key+'/'+name,360 if name in ('name','description','warranty_note') else 240)
+                    if key=='basic':
+                        field.ensurePolished();baseline=74 if isinstance(field,QPlainTextEdit) else field.sizeHint().height()
+                        field.setFixedHeight(max(field.fontMetrics().height(),baseline-round(3*field.logicalDpiY()/72)))
         for kind,fields in w.cost_fields.items():
             for name,field in fields.items(): self.field(field,'costs/'+kind+'/'+name,220)
         for key,table in w.tables.items(): self.table(table,'calendar/'+key)

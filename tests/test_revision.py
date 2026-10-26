@@ -149,17 +149,17 @@ class RevisionUITests(unittest.TestCase):
     def test_cost_totals_readonly_decimal_and_missing_inputs(self):
         w=self.window; w.toggle_lock('costs')
         for kind in ('budget','contract'):
-            for key,val in dict(award_total='1000.01',unfinished_tax='50',own_labor='10',purchased_material='20',road_stock='30',road_purchase='40',supervision='50',freight='60',pollution='70',stamp_tax='999').items():
+            for key,val in dict(award_total='1000.01',work='1000.01',work_tax='0',labor='0',unfinished_tax='50',own_labor='10',purchased_material='20',road_stock='30',road_purchase='40',supervision='50',freight='60',pollution='70',stamp_tax='999').items():
                 w.cost_fields[kind][key].setText(val)
         w.capture_costs()
         for kind in ('budget','contract'):
             side=w.session.pages['costs'][kind]
             self.assertEqual(side['other_fees'],'70'); self.assertEqual(side['non_labor'],'280')
-            self.assertEqual(side['unfinished'],'1280.01'); self.assertEqual(side['total'],'1330.01')
+            self.assertEqual(side['unfinished'],'1230.01'); self.assertEqual(side['total'],'1280.01')
             for key in ('other_fees','unfinished','total'): self.assertTrue(w.cost_fields[kind][key].isReadOnly())
         w.cost_fields['contract']['unfinished_tax'].clear(); w.capture_costs()
         self.assertEqual(w.session.pages['costs']['contract']['total'],'')
-        w.save(); self.wait_io(); self.assertEqual(w.store.load()['pages']['costs']['budget']['total'],'1330.01')
+        w.save(); self.wait_io(); self.assertEqual(w.store.load()['pages']['costs']['budget']['total'],'1280.01')
 
     def test_invalid_date_draft_hides_stale_deadlines_without_writing(self):
         w=self.window; w.toggle_lock('basic')
@@ -232,6 +232,8 @@ class RevisionUITests(unittest.TestCase):
 
     def test_stage_sequence_requires_successful_saved_previous_and_zero_counts(self):
         w=self.window; w.tabs.setCurrentIndex(2); w.billing_tabs.setCurrentIndex(2); w.toggle_lock('admin_payments')
+        from traaduoduo.billing import new_record
+        w.session.pages['other_payments']=[dict(new_record('other_payments','transfer',1),item='transfer',stage='first',amount='0')]
         self.assertFalse(w.allocation_buttons[1].isEnabled())
         candidate=dict(stage='first',period=1,**{'0C12':'0','0C11':'0','0C14':'0'})
         self.assertTrue(w.submit_allocation(candidate)); self.assertFalse(w.allocation_buttons[1].isEnabled())
@@ -251,6 +253,8 @@ class RevisionUITests(unittest.TestCase):
 
     def test_failed_allocation_write_does_not_unlock_next_stage(self):
         w=self.window; w.toggle_lock('admin_payments')
+        from traaduoduo.billing import new_record
+        w.session.pages['other_payments']=[dict(new_record('other_payments','transfer',1),item='transfer',stage='first',amount='0')]
         candidate=dict(stage='first',period=1,**{'0C12':'0','0C11':'0','0C14':'0'})
         with patch.object(w.store,'save',side_effect=OSError('disk full')),patch('traaduoduo.ui.QMessageBox.warning'),self.assertLogs(level='ERROR'):
             self.assertTrue(w.submit_allocation(candidate)); self.wait_io()
@@ -276,7 +280,8 @@ ProjectStore(p).save({'costs':c,'basic':b,'weather':[['2026-10-05','0','0','-1']
         self.assertFalse(preview['projects'][0]['errors'])
         pid=w.store.import_preview(preview)['ids'][0]; migrated=ProjectStore(self.path,pid).load()['pages']
         self.assertEqual(migrated['costs']['budget']['historical_totals'],{'total':'999','unfinished':'888'})
-        self.assertEqual(migrated['costs']['budget']['total'],'105')
+        self.assertEqual(migrated['costs']['budget']['total'],'')
+        self.assertEqual(migrated['costs']['budget']['historical_v070']['award_total'],'100')
         self.assertEqual(migrated['basic']['historical_deadlines']['workday_finish'],'2020-01-01')
         self.assertEqual(migrated['basic']['workday_finish'],'2026-10-06')
         self.assertEqual(migrated['weather'][0][4],'1')

@@ -1,0 +1,9 @@
+Program Name: TRAADuoDuo
+Display Name: 踢厄工程管理坊
+Version: V0.8.0
+Build Date: 2026-10-22
+Build Type: Python / PySide6 source delivery
+Validated Runtime: macOS / Python 3.14.5 / PySide6 6.11.1
+Schema Version: 10
+Change Summary: 60-second idle nonblocking autosave; ordered finance formulas; linked allocation periods; simplified admin ledger; diary search and manual ordering; typed XLSX and paginated CJK PDF exports; Windows-only tray; shared About content.
+Windows: conditional branches tested on macOS; physical Windows tray and DPI not verified.

@@ -1,0 +1,8 @@
+Program Name: TRAADuoDuo
+Display Name: 踢厄工程管理坊
+Version: V0.6.1
+Build Date: 2026-10-17
+Build Type: Python / PySide6 source delivery
+Validated Runtime: macOS / Python 3.14.5 / PySide6 6.11.1
+Schema Version: 8
+Change Summary: Bounded calendar ledger, compact financial fields, precise money presentation, merged calendar tables, tax-inclusive billing progress, shared verified Docstore content reuse.

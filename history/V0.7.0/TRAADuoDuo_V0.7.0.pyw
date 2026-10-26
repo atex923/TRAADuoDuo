@@ -1,0 +1,5 @@
+"""TRAADuoDuo V0.7.0 windowed launcher."""
+from traaduoduo.app import main
+
+if __name__ == '__main__':
+    raise SystemExit(main())

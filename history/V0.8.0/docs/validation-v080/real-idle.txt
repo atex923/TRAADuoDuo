@@ -1,0 +1,3 @@
+qt.qpa.fonts: Populating font family aliases took 110 ms. Replace uses of missing font family "Sans Serif" with one that exists to avoid this cost. 
+59 seconds: no write
+{"elapsed_seconds": 62.9, "after_59_seconds": "not saved", "after_60_seconds": "saved", "focus_preserved": true, "cursor_preserved": true}

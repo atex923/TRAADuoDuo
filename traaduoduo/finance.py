@@ -9,14 +9,14 @@ FIELDS = [('total','總工程預算／費用（含稅）'),('unfinished','未完
  ('award_total','發包工程費預算／契約金額（含稅）'),('work','發包工程／發包工程費金額'),('work_tax','進項稅額／營業稅'),
  ('base_price','底價'),('labor','包工費'),('management_amount','工程管理費'),('own_labor','自辦工費'),
  ('purchased_material','自購材料費'),('road_stock','路備材料費'),('road_purchase','路購材料費'),
- ('supervision','監理費'),('freight','雜運費'),('stamp_tax','印花稅'),('other_fees','其他費用'),('pollution','空污費')]
+ ('supervision','監理費'),('freight','運雜費'),('stamp_tax','印花稅'),('other_fees','其他費用'),('pollution','空污費')]
 DERIVED_COSTS={'total','unfinished','other_fees','non_labor'}
 COPY_KEYS={'own_labor','purchased_material','road_stock','road_purchase','supervision','freight','stamp_tax','pollution'}
 
 def empty_costs():
     side={k:'' for k,_ in FIELDS}
     side.update(management_manual=False,management_adjustment='',non_labor='')
-    return dict(budget=deepcopy(side),contract=deepcopy(side),extensions=[],guarantee_base='award_total',own_labor_copy='own_labor',calculation_revision=1,extensions_visible=True)
+    return dict(budget=deepcopy(side),contract=deepcopy(side),extensions=[],guarantee_base='award_total',own_labor_copy='own_labor',calculation_revision=3,extensions_visible=True)
 
 def normalize_costs(value):
     result=empty_costs()
@@ -28,14 +28,18 @@ def normalize_costs(value):
     if value and 'calculation_revision' not in value:
         result['source_settings_legacy']={key:value.get(key,result[key]) for key in ('guarantee_base','own_labor_copy')}
     result.setdefault('extensions_visible',True)
-    result['calculation_revision']=1
+    if value and value.get('calculation_revision',0)<2:
+        for kind in ('budget','contract'):result[kind].setdefault('historical_v070',deepcopy(value.get(kind,{})))
+    if value and value.get('calculation_revision',0)<3:
+        for kind in ('budget','contract'):result[kind].setdefault('historical_v080',deepcopy(value.get(kind,{})))
+    result['calculation_revision']=3
     return result
 
 def cost_totals(costs,kind):
     side=costs[kind]
     other=amount(side['pollution'] or '0')+sum((amount(r[kind] or '0') for r in costs['extensions']),Decimal(0))
     non=sum((amount(side[k] or '0') for k in ('own_labor','purchased_material','road_stock','road_purchase','supervision','freight')),Decimal(0))+other
-    unfinished=amount(side['award_total'])+non if side['award_total']!='' else None
+    unfinished=amount(side['award_total'])+amount(side['management_amount'])+non-amount(side['unfinished_tax']) if all(side[k]!='' for k in ('award_total','management_amount','unfinished_tax')) else None
     total=unfinished+amount(side['unfinished_tax']) if unfinished is not None and side['unfinished_tax']!='' else None
     return {key:('' if val is None else text_amount(val)) for key,val in dict(other_fees=other,non_labor=non,unfinished=unfinished,total=total).items()}
 
@@ -49,7 +53,7 @@ def text_amount(value):
     return format(value,'f')
 
 def format_money(value):
-    return '' if value=='' or value is None else format(decimal(value),',f')
+    return '' if value=='' or value is None else format(decimal(value).quantize(Decimal('.01'),rounding=ROUND_HALF_UP),',.2f')
 
 def legacy_money(value):
     """Remove only explicit currency decoration. Unknown text stays invalid."""
@@ -73,7 +77,7 @@ def legacy_date(value):
     return text,''
 
 def management_fee(side,kind):
-    main='award_total' if kind=='budget' else 'work'
+    main='labor'
     if side[main]=='':
         return None
     source=sum((amount(side[k] or '0') for k in (main,'own_labor','purchased_material','road_stock','road_purchase')),Decimal(0))
@@ -93,9 +97,10 @@ def synchronize(pages):
     result=deepcopy(pages)
     costs=result['costs']
     for kind in ('budget','contract'):
-        costs[kind].update(cost_totals(costs,kind))
+        if kind=='budget':costs[kind]['award_total']=text_amount(amount(costs[kind]['work'])+amount(costs[kind]['work_tax'])) if costs[kind]['work']!='' and costs[kind]['work_tax']!='' else ''
         calculation=management_fee(costs[kind],kind)
         costs[kind]['management_amount']=costs[kind]['management_adjustment'] if costs[kind]['management_manual'] else (text_amount(calculation['adjusted']) if calculation and calculation['adjusted'] is not None else '')
+        costs[kind].update(cost_totals(costs,kind))
     guarantees=result['guarantees']
     base=costs['contract'][costs['guarantee_base']]
     for prefix in ('performance','warranty'):

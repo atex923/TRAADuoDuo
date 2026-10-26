@@ -1,0 +1,1 @@
+V0.8.1(20261023) screenshots: <project-root>/outputs/TRAADuoDuo/V0.8.1/docs/previews/v081-native; Qt=cocoa

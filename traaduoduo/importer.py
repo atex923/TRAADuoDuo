@@ -29,7 +29,7 @@ def preview_database(path):
             result.append(dict(source_key='traaduoduo:' + meta['project_id'], pages=pages,
                                raw={'metadata': meta, 'pages': pages}, report=['TRAADuoDuo schema 1：全部五個資料頁轉換']))
             kind = 'TRAADuoDuo V0.0.1/V0.0.2'
-        elif app_id == APPLICATION_ID and version in (2, 3, 4, 5, 6, 7, 8):
+        elif app_id == APPLICATION_ID and version in (2, 3, 4, 5, 6, 7, 8, 9, 10):
             for project in conn.execute('SELECT * FROM projects'):
                 pid = project['project_id']
                 pages = {r['page_id']: json.loads(r['payload']) for r in conn.execute('SELECT * FROM pages WHERE project_id=?', (pid,))}
@@ -40,6 +40,8 @@ def preview_database(path):
                     pages=ProjectStore._read_pages(conn,pid,version)
                 raw = {'project': dict(project), 'pages':pages, 'imports': [dict(r) for r in conn.execute('SELECT * FROM imports WHERE project_id=?', (pid,))]}
                 report=['統一資料庫工程匯入為新工程；原封存狀態保存在原始紀錄']
+                if version<=9:report.append('V0.8：工程費用依新公式重算，舊費用值另存 historical_v070；分攤有效期改由同階段提撥期數連動，人工生效期保留為歷史欄。事記本依原清單順序保留。')
+                if version<=8:report.append('schema 9：文件依原順序補入項次，文號與文件日期留白；大事記完整移至事記本，期限追蹤另建空清單。來源不改寫。')
                 if version<=6:
                     report.append('V0.5 工期與費用使用新連動規則；舊總額、預定日期與晴雨原值保留供差異核對，來源不改寫。')
                 if version<=5:

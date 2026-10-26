@@ -2,15 +2,18 @@
 from copy import deepcopy
 from datetime import date
 from .aa_import import TABLES
+from .tracking import normalize_documents,validate_tracking,iso_day
 
-EXTRA_KEYS={'details','diary','documents','photos'}
+EXTRA_KEYS={'details','diary','documents','photos','deadline_tracking'}
 
 def normalize_extra(pages):
     result=deepcopy(pages)
     result.setdefault('details',{key:[] for key in TABLES})
     result.setdefault('diary',[])
+    result.setdefault('deadline_tracking',[])
     for key in ('documents','photos'):
         result.setdefault(key,dict(categories=[],rows=[]))
+    result['documents']=normalize_documents(result['documents'])
     return result
 
 def validate_extra(key,value):
@@ -26,6 +29,8 @@ def validate_extra(key,value):
                 for row in batch['rows']:
                     if row['id'] in ids or len(row['values'])!=16: raise ValueError('詳細表紀錄不完整')
                     ids.add(row['id'])
+    elif key=='deadline_tracking':
+        validate_tracking(value)
     elif key=='diary':
         seen=set(); ids=set()
         for row in value:
@@ -33,6 +38,13 @@ def validate_extra(key,value):
             if row['id'] in ids: raise ValueError('大事記識別重複')
             seen.add(row['number']); ids.add(row['id']); date.fromisoformat(row['date'])
     else:
+        if key=='documents':
+            value=normalize_documents(value);numbers=set()
+            for row in value['rows']:
+                if type(row['number']) is not int or row['number']<1 or row['number'] in numbers:raise ValueError('文件項次須為不重複正整數')
+                numbers.add(row['number'])
+                if not isinstance(row['document_no'],str):raise ValueError('文件文號須為文字')
+                if row['document_date']:iso_day(row['document_date'])
         categories={r['id']:r for r in value['categories']}
         if len(categories)!=len(value['categories']): raise ValueError('分類識別重複')
         for item in categories.values():

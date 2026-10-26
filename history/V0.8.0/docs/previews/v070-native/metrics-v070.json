@@ -1,0 +1,13 @@
+{
+  "version": "V0.7.0",
+  "schema": 9,
+  "platform": "cocoa",
+  "generated_date": "2026-10-18",
+  "deadline_rows": 6,
+  "upcoming_rows": 3,
+  "document_order": [
+    "1",
+    "2",
+    "10"
+  ]
+}

@@ -1,0 +1,35 @@
+test_failed_export_keeps_existing_target (test_v080.Export.test_failed_export_keeps_existing_target) ... ok
+test_pdf_chinese_searchable_and_long_rows_repeat_headers (test_v080.Export.test_pdf_chinese_searchable_and_long_rows_repeat_headers) ... ok
+test_wide_pdf_bands_keep_all_columns (test_v080.Export.test_wide_pdf_bands_keep_all_columns) ... ok
+test_xlsx_types_precision_and_formula_injection (test_v080.Export.test_xlsx_types_precision_and_formula_injection) ... ok
+test_auto_stage_period_and_inequality_allowed (test_v080.Rules.test_auto_stage_period_and_inequality_allowed) ... ok
+test_legacy_period_is_preserved_but_not_authoritative (test_v080.Rules.test_legacy_period_is_preserved_but_not_authoritative) ... ok
+test_manual_management_used_once_and_missing_not_zero (test_v080.Rules.test_manual_management_used_once_and_missing_not_zero) ... ok
+test_new_bases_and_ordered_totals (test_v080.Rules.test_new_bases_and_ordered_totals) ... ok
+test_about_content_and_non_windows_no_tray (test_v080.UI.test_about_content_and_non_windows_no_tray) ... qt.qpa.fonts: Populating font family aliases took 99 ms. Replace uses of missing font family "Sans Serif" with one that exists to avoid this cost. 
+ok
+test_allocation_dialog_has_no_manual_effective_period (test_v080.UI.test_allocation_dialog_has_no_manual_effective_period) ... This plugin does not support propagateSizeHints()
+ok
+test_auto_failure_nonblocking_and_manual_save (test_v080.UI.test_auto_failure_nonblocking_and_manual_save) ... ok
+test_bid_number_dialog_edits_stable_record (test_v080.UI.test_bid_number_dialog_edits_stable_record) ... This plugin does not support propagateSizeHints()
+ok
+test_calendar_export_has_all_month_days (test_v080.UI.test_calendar_export_has_all_month_days) ... ok
+test_diary_search_manual_moves_date_order_and_ids (test_v080.UI.test_diary_search_manual_moves_date_order_and_ids) ... ok
+test_export_snapshot_filters_and_ids_without_dirty (test_v080.UI.test_export_snapshot_filters_and_ids_without_dirty) ... ok
+test_header_height_and_allocation_row_height (test_v080.UI.test_header_height_and_allocation_row_height) ... ok
+test_idle_59_then_60_and_focus (test_v080.UI.test_idle_59_then_60_and_focus) ... ok
+test_input_method_and_dialog_defer_without_committing (test_v080.UI.test_input_method_and_dialog_defer_without_committing) ... ok
+test_manual_save_waits_for_background_snapshot (test_v080.UI.test_manual_save_waits_for_background_snapshot) ... ok
+test_payment_export_cutoff_and_immutable_snapshot (test_v080.UI.test_payment_export_cutoff_and_immutable_snapshot) ... ok
+test_real_schema9_readonly_import_preserves_cost_history (test_v080.UI.test_real_schema9_readonly_import_preserves_cost_history) ... ok
+test_removed_admin_fields_and_stage_setting_roundtrip (test_v080.UI.test_removed_admin_fields_and_stage_setting_roundtrip) ... ok
+test_slow_background_new_typing_stays_dirty (test_v080.UI.test_slow_background_new_typing_stays_dirty) ... ok
+test_table_editor_idle_does_not_force_commit (test_v080.UI.test_table_editor_idle_does_not_force_commit) ... edit: editing failed
+ok
+test_windows_atomic_lock_branch (test_v080.UI.test_windows_atomic_lock_branch) ... ok
+test_windows_tray_branch_option_and_minimize_fallback (test_v080.UI.test_windows_tray_branch_option_and_minimize_fallback) ... ok
+
+----------------------------------------------------------------------
+Ran 26 tests in 4.267s
+
+OK

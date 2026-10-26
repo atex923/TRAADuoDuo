@@ -1,0 +1,9 @@
+{
+  "version": "V0.8.0",
+  "schema": 10,
+  "platform": "offscreen",
+  "auto_save_ms": 60000,
+  "allocation_height": 24,
+  "summary_font_pt": 16,
+  "summary_height": 140
+}

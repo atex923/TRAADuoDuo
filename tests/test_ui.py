@@ -32,10 +32,11 @@ class UITests(unittest.TestCase):
 
     def wait_io(self):
         deadline = time.monotonic() + 5
-        while self.window.future is not None and time.monotonic() < deadline:
+        while (self.window.future is not None or self.window._auto_job is not None) and time.monotonic() < deadline:
             APP.processEvents()
             QTest.qWait(20)
         self.assertIsNone(self.window.future)
+        self.assertIsNone(self.window._auto_job)
 
     def test_shell_lock_autosave_and_undo(self):
         w = self.window
@@ -43,7 +44,7 @@ class UITests(unittest.TestCase):
         self.assertEqual(w.basic_tabs.count(), 5)
         self.assertEqual(w.calendar_tabs.count(), 3)
         self.assertTrue(w.fields['name'].isReadOnly())
-        self.assertFalse(w.print_button.isEnabled())
+        self.assertTrue(w.print_button.isEnabled())
         self.assertFalse(w.windowIcon().isNull())
         w.toggle_lock('basic')
         w.fields['name'].setText('已修改工程')
@@ -96,6 +97,9 @@ class UITests(unittest.TestCase):
         w.fields['number'].setFocus()
         QTest.keyClicks(w.fields['number'], 'AUTO-123')
         QTest.qWait(1400)
+        self.assertEqual(ProjectStore(self.path).load()['pages']['basic']['number'],'')
+        w.input_activity.last_input-=60
+        w.idle_timeout()
         self.wait_io()
         self.assertEqual(ProjectStore(self.path).load()['pages']['basic']['number'], 'AUTO-123')
 
@@ -148,7 +152,8 @@ class UITests(unittest.TestCase):
         self.assertEqual(w.secondary_tabs.count(),4)
         self.assertFalse(w.tab_divider.isHidden())
         w.tabs.setCurrentIndex(4)
-        self.assertTrue(w.secondary_tabs.isHidden())
+        self.assertFalse(w.secondary_tabs.isHidden())
+        self.assertEqual(w.secondary_tabs.count(),2)
         w.primary_tabs.setCurrentIndex(1)
         self.assertFalse(w.secondary_tabs.isHidden())
         self.assertEqual(w.secondary_tabs.currentIndex(),1)

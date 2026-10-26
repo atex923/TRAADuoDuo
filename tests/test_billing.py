@@ -126,11 +126,13 @@ class BillingTests(unittest.TestCase):
         p['admin_payments']['allocations'][0]=allocation(period=1)
         p['admin_payments']['allocations'][1]=allocation('second',period=5,travel='100',overtime='0',other='0')
         p['admin_payments']['rows']=[record('admin_payments',period=2,amount='20',**{'0C12':'20'})]
+        p['other_payments']=[record('other_payments','first-transfer',1,item='transfer',stage='first',amount='100'),record('other_payments','second-transfer',5,item='transfer',stage='second',amount='100')]
         self.assertEqual(summary(p,'admin_payments',2)['0C12_available'],40)
         p['admin_payments']['allocations'][0]['period']=''
+        p['other_payments']=p['other_payments'][1:]
         self.assertEqual(summary(p,'admin_payments',2)['0C12_available'],-20)
         self.assertEqual(summary(p,'admin_payments')['0C12_available'],80)
-        self.assertTrue(any('未填生效期' in s for s in warnings(p)))
+        self.assertTrue(any('尚無唯一對應提撥' in s for s in warnings(p)))
 
     def test_all_four_stages_enforce_one_transfer_but_same_period_0A_is_allowed(self):
         rows=[]
@@ -188,6 +190,7 @@ class BillingTests(unittest.TestCase):
         p=deepcopy(self.window.session.pages)
         p['admin_payments']['allocations']=[allocation('first',1,'100','0','0'),allocation('second',5,'200','0','0'),allocation('third','','300','0','0'),allocation('final',8,'-20','0','0')]
         p['admin_payments']['rows']=[record('admin_payments','old',2,amount='30',**{'0C12':'30'}),record('admin_payments','new',6,amount='50',**{'0C12':'50'})]
+        p['other_payments']=[record('other_payments',stage,period,item='transfer',stage=stage,amount='0') for stage,period in [('first',1),('second',5),('final',8)]]
         self.assertEqual(summary(p,'admin_payments',2)['0C12_available'],70)
         self.assertEqual(summary(p,'admin_payments',5)['0C12_available'],270)
         self.assertEqual(summary(p,'admin_payments',6)['0C12_available'],220)
@@ -201,6 +204,7 @@ class BillingTests(unittest.TestCase):
 
     def test_fixed_period_policy_and_allocation_only_period_selector(self):
         w=self.window; self.unlock('admin_payments')
+        w.session.pages['other_payments']=[record('other_payments','first-transfer',5,item='transfer',stage='first',amount='100')]
         self.assertEqual(empty_admin()['available_basis'],'period')
         self.assertFalse(w.available_basis_combo.isEnabled())
         self.assertEqual(w.available_basis_combo.count(),1)
@@ -282,7 +286,7 @@ class BillingTests(unittest.TestCase):
         w=self.window; self.unlock('admin_payments'); w.billing_tabs.setCurrentIndex(2)
         def save():
             dialog=next(d for d in w.findChildren(QDialog) if d.isVisible())
-            for key,value in [('0C12','60'),('0C11','30'),('0C14','10'),('period','1')]:
+            for key,value in [('0C12','60'),('0C11','30'),('0C14','10')]:
                 dialog.findChild(QLineEdit,'allocation_'+key).setText(value)
             dialog.findChild(QDialogButtonBox).button(QDialogButtonBox.StandardButton.Save).click()
         QTimer.singleShot(0,save); w.edit_allocation(0)

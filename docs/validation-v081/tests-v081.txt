@@ -1,0 +1,21 @@
+test_money_display (test_v081.Rules.test_money_display) ... ok
+test_net_totals_both_sides_and_no_double_tax (test_v081.Rules.test_net_totals_both_sides_and_no_double_tax) ... ok
+test_v080_formula_history_not_overwritten (test_v081.Rules.test_v080_formula_history_not_overwritten) ... ok
+test_layout_codes_and_original_formula (test_v081.SuppliedAB.test_layout_codes_and_original_formula) ... ok
+test_save_reopen_preserves_all_source_fields (test_v081.SuppliedAB.test_save_reopen_preserves_all_source_fields) ... ok
+test_wrong_format_and_empty_sheet_rejected (test_v081.SuppliedAB.test_wrong_format_and_empty_sheet_rejected) ... ok
+test_billing_alignment_all_tables_and_allocations (test_v081.UI.test_billing_alignment_all_tables_and_allocations) ... qt.qpa.fonts: Populating font family aliases took 98 ms. Replace uses of missing font family "Sans Serif" with one that exists to avoid this cost. 
+ok
+test_cost_display_no_precision_loss_extensions (test_v081.UI.test_cost_display_no_precision_loss_extensions) ... ok
+test_delete_budget_revision_cancel_confirm_undo (test_v081.UI.test_delete_budget_revision_cancel_confirm_undo) ... ok
+test_locked_delete_does_nothing (test_v081.UI.test_locked_delete_does_nothing) ... ok
+test_manual_save_click_immediate_not_idle (test_v081.UI.test_manual_save_click_immediate_not_idle) ... ok
+test_manual_save_commits_active_table_editor (test_v081.UI.test_manual_save_commits_active_table_editor) ... edit: editing failed
+ok
+test_manual_save_during_io_not_dropped (test_v081.UI.test_manual_save_during_io_not_dropped) ... ok
+test_windows_titlebar_button_order_and_minimize_distinction (test_v081.UI.test_windows_titlebar_button_order_and_minimize_distinction) ... ok
+
+----------------------------------------------------------------------
+Ran 14 tests in 2.331s
+
+OK

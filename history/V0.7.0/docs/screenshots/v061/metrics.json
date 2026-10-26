@@ -1,0 +1,14 @@
+{
+  "version": "V0.6.1",
+  "window_width": 860,
+  "normal_field_width": 240,
+  "long_field_width": 360,
+  "summary_pt": 16,
+  "period_order": [
+    "1",
+    "2",
+    "3",
+    "9",
+    "10"
+  ]
+}

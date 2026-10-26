@@ -7,7 +7,7 @@ from zipfile import ZipFile,ZIP_DEFLATED
 
 root=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(root))
-excluded={'__pycache__','.git','.venv','deliverables','history'}
+excluded={'__pycache__','.git','.venv','deliverables'}
 files=sorted(p for p in root.rglob('*') if p.is_file() and not any(part in excluded for part in p.relative_to(root).parts) and p.suffix not in ('.pyc','.db','.log') and p.name not in ('.DS_Store','SHA256_MANIFEST.json'))
 manifest={p.relative_to(root).as_posix():hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
 manifest_path=root/'SHA256_MANIFEST.json';manifest_path.write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')

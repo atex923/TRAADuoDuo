@@ -14,6 +14,9 @@ from .aa_import import HEADERS,TABLES,inspect_aa,sheets,format_decimal
 from .advanced_data import EXTRA_KEYS,validate_extra
 from .asset_store import new_asset,available_path,inventory,portable_backup,restore_backup,sha
 from .pdf_reader import PdfReader
+from .tracking import DOCUMENT_COLUMNS,PHOTO_COLUMNS,normalize_documents,document_order
+from .document_forms import DocumentForms
+from .tracking_forms import TrackingForms
 
 class FileTable(ProjectTable):
     filesDropped=Signal(object)
@@ -34,7 +37,7 @@ class DiaryDelegate(QStyledItemDelegate):
     def setEditorData(self,editor,index):editor.setPlainText(str(index.data() or ''))
     def setModelData(self,editor,model,index):model.setData(index,editor.toPlainText())
 
-class AdvancedForms:
+class AdvancedForms(DocumentForms,TrackingForms):
     @staticmethod
     def toolstrip(layout):
         area=QScrollArea();area.setWidgetResizable(True);area.setFixedHeight(64)
@@ -54,6 +57,7 @@ class AdvancedForms:
 
     def commit_extra(self,key,value,refresh=True):
         if not self.session or key not in self.session.unlocked:raise ValueError('請先解鎖此頁')
+        if key=='documents':value=normalize_documents(value)
         validate_extra(key,value); self.session.change(key,value)
         if refresh:self.populate_advanced(key)
         self.changed()
@@ -65,6 +69,8 @@ class AdvancedForms:
             page=QWidget(); self.detail_tabs.addTab(page,title); column=QVBoxLayout(page); tools=self.toolstrip(column)
             self.extra_button('details',tools,'依序匯入 Excel',lambda checked=False,k=key:self.choose_aa(k))
             versions=QComboBox(); versions.setMinimumWidth(200); tools.addWidget(versions)
+            source_format=QComboBox();source_format.addItems(['自動辨識','A3118','AB3155']);source_format.setAccessibleName(title+'匯入格式');tools.addWidget(source_format)
+            if key=='budget':self.extra_button('details',tools,'刪除',lambda:self.delete_detail_revision('budget'))
             levels=QComboBox(); levels.addItems(['全部層級','單價分析層']+['顯示至 '+str(i)+' 碼' for i in range(1,16)]); tools.addWidget(levels)
             levels.setCurrentIndex(int(self.settings.value('details/'+key+'/level',0)))
             levels.currentIndexChanged.connect(lambda index,k=key:self.settings.setValue('details/'+k+'/level',index))
@@ -74,7 +80,7 @@ class AdvancedForms:
             tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection); tree.setAlternatingRowColors(True); column.addWidget(tree)
             for i in range(16):tree.setColumnWidth(i,280 if i in (3,5,13,14,15) else 150)
             info=QLabel(); info.setWordWrap(True); column.addWidget(info)
-            self.detail_ui[key]=dict(versions=versions,levels=levels,tree=tree,info=info)
+            self.detail_ui[key]=dict(versions=versions,source_format=source_format,levels=levels,tree=tree,info=info)
             versions.currentIndexChanged.connect(lambda *_,k=key:self.populate_detail(k)); levels.currentIndexChanged.connect(lambda *_,k=key:self.populate_detail(k))
             tree.itemExpanded.connect(lambda item,k=key:self.remember_detail_expansion(k)); tree.itemCollapsed.connect(lambda item,k=key:self.remember_detail_expansion(k))
 
@@ -85,16 +91,27 @@ class AdvancedForms:
         try:
             sheet,ok=QInputDialog.getItem(self,'選擇工作表','工作表',sheets(path),0,False)
             if not ok:return
-            header,ok=QInputDialog.getInt(self,'表頭位置','表頭列（第一列為 1）',1,1,100)
+            fmt=self.detail_ui[key]['source_format'].currentText()
+            fmt='auto' if fmt=='自動辨識' else fmt
+            header,ok=QInputDialog.getInt(self,'表頭位置','表頭列（0 自動辨識，第一列為 1）',0,0,100)
             if not ok:return
         except Exception as exc:QMessageBox.warning(self,'無法讀取 Excel',str(exc));return
         pid=self.store.project_id
-        self.io(lambda:inspect_aa(path,sheet,header),lambda batch:self.show_aa_preview(key,batch,pid))
+        self.io(lambda:inspect_aa(path,sheet,header or None,fmt),lambda batch:self.show_aa_preview(key,batch,pid))
+
+    def delete_detail_revision(self,key):
+        if not self.session or 'details' not in self.session.unlocked:return
+        index=self.detail_ui[key]['versions'].currentIndex()
+        batches=self.session.pages['details'][key]
+        if not 0<=index<len(batches):return
+        batch=batches[index]
+        if QMessageBox.question(self,'刪除預算修訂版',f"刪除選取的「{batch.get('name',batch['filename'])}」及其 {len(batch['rows'])} 筆項目？\n不刪除來源 Excel 或其他修訂版；可用回復動作復原。")!=QMessageBox.StandardButton.Yes:return
+        value=deepcopy(self.session.pages['details']);value[key].pop(index);self.commit_extra('details',value)
 
     def show_aa_preview(self,key,batch,pid):
         if not self.session or self.store.project_id!=pid:return
         dialog=QDialog(self); dialog.setWindowTitle('匯入預覽：'+TABLES[key]); layout=QVBoxLayout(dialog)
-        title=QLabel(f"工程：{self.session.pages['basic']['name']}\n{batch['filename']}／{batch['sheet']}　{len(batch['rows'])} 筆／最長 {batch['max_length']} 碼\n新增獨立修訂版，不覆蓋既有資料。")
+        title=QLabel(f"工程：{self.session.pages['basic']['name']}\n{batch['filename']}／{batch['sheet']}／{batch.get('input_format','A3118')}　表頭第 {batch['header_row']} 列　{len(batch['rows'])} 筆／最長 {batch['max_length']} 碼\n新增獨立修訂版，不覆蓋既有資料。")
         title.setWordWrap(True); layout.addWidget(title)
         preview=ProjectTable(min(100,len(batch['rows'])),16); preview.setHorizontalHeaderLabels(HEADERS); preview.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         for i,row in enumerate(batch['rows'][:100]):
@@ -138,7 +155,7 @@ class AdvancedForms:
                 for rid in json.loads(saved):
                     if rid in nodes:nodes[rid].setExpanded(True)
             except (ValueError,TypeError):pass
-        ui['info'].setText(f"{len(batch['rows'])} 筆／顯示 {len(nodes)} 筆／最長 {batch['max_length']} 碼；單價分析不重複計入工程總額。\n"+'；'.join(batch['warnings']))
+        ui['info'].setText(f"{batch.get('input_format','A3118')}　{len(batch['rows'])} 筆／顯示 {len(nodes)} 筆／最長 {batch['max_length']} 碼；單價分析不重複計入工程總額。\n"+'；'.join(batch['warnings']))
         tree.blockSignals(False)
 
     def remember_detail_expansion(self,key):
@@ -161,31 +178,57 @@ class AdvancedForms:
             for i,check in enumerate(checks):tree.setColumnHidden(i,not check.isChecked());self.settings.setValue(f'details/{key}/hidden/{i}',not check.isChecked())
 
     def build_diary(self):
-        outer,body=self.edit_page('diary');self.tabs.addTab(outer,'大事記');layout=QVBoxLayout(body);tools=self.toolstrip(layout)
-        self.extra_button('diary',tools,'新增大事記',self.add_diary);self.extra_button('diary',tools,'移除',self.remove_diary);tools.addStretch()
-        self.diary_table=ProjectTable(0,4);self.diary_table.setHorizontalHeaderLabels(['項次','日期','說明','備註']);self.diary_table.setWordWrap(True)
-        self.diary_table.setColumnWidth(0,80);self.diary_table.setColumnWidth(1,155)
-        for col in (2,3):self.diary_table.setColumnWidth(col,self.fontMetrics().horizontalAdvance('中')*50);self.diary_table.setItemDelegateForColumn(col,DiaryDelegate(self.diary_table))
+        self.diary_tabs=QTabWidget();self.tabs.addTab(self.diary_tabs,'大事記')
+        outer,body=self.edit_page('diary');self.diary_tabs.addTab(outer,'事記本');layout=QVBoxLayout(body);tools=self.toolstrip(layout)
+        self.extra_button('diary',tools,'新增大事記',self.add_diary);self.extra_button('diary',tools,'移除',self.remove_diary)
+        self.extra_button('diary',tools,'上移',lambda:self.move_diary(-1));self.extra_button('diary',tools,'下移',lambda:self.move_diary(1))
+        self.diary_search=QLineEdit();self.diary_search.setPlaceholderText('搜尋日期／說明／備註');self.diary_search.setClearButtonEnabled(True);self.diary_search.setProperty('viewOnlyInput',True);tools.addWidget(self.diary_search)
+        self.diary_sort=QComboBox();self.diary_sort.addItems(['輸入順序（可移位）','日期升冪','日期降冪']);self.diary_sort.setProperty('viewOnlyInput',True);tools.addWidget(self.diary_sort)
+        self.diary_count=QLabel();tools.addWidget(self.diary_count)
+        self.diary_table=ProjectTable(0,3);self.diary_table.setHorizontalHeaderLabels(['日期','說明','備註']);self.diary_table.setWordWrap(True)
+        self.diary_table.setColumnWidth(0,155)
+        for col in (1,2):self.diary_table.setColumnWidth(col,self.fontMetrics().horizontalAdvance('中')*50);self.diary_table.setItemDelegateForColumn(col,DiaryDelegate(self.diary_table))
         self.diary_table.itemChanged.connect(self.capture_diary);self.diary_table.horizontalHeader().sectionResized.connect(lambda *_:self.resize_diary());layout.addWidget(self.diary_table)
+        self.build_tracking()
+        self.diary_search.textChanged.connect(lambda *_:self.populate_advanced('diary'))
+        self.diary_sort.currentIndexChanged.connect(lambda i:(self.settings.setValue('diary/sort',i),self.populate_advanced('diary')))
+        self.diary_sort.setCurrentIndex(int(self.settings.value('diary/sort',0)))
+
+    def diary_rows(self,all_rows=False):
+        rows=list(self.session.pages['diary']) if self.session else []
+        query=self.diary_search.text().strip().casefold()
+        if query and not all_rows:rows=[r for r in rows if query in ' '.join(r[k] for k in ('date','description','note')).casefold()]
+        if self.diary_sort.currentIndex():rows.sort(key=lambda r:r['date'],reverse=self.diary_sort.currentIndex()==2)
+        return rows
+
+    def move_diary(self,step):
+        if not self.session or 'diary' not in self.session.unlocked:return
+        if self.diary_search.text().strip() or self.diary_sort.currentIndex():self.message.setText('請清除搜尋並切回輸入順序後移位');return
+        item=self.diary_table.currentItem()
+        if not item:return
+        rid=item.data(Qt.ItemDataRole.UserRole);rows=deepcopy(self.session.pages['diary']);index=next(i for i,r in enumerate(rows) if r['id']==rid);target=index+step
+        if not 0<=target<len(rows):return
+        rows[index],rows[target]=rows[target],rows[index];self.commit_extra('diary',rows)
+        self.diary_table.setCurrentCell(target,1)
 
     def add_diary(self):
         if not self.session or 'diary' not in self.session.unlocked:return
         dialog=QDialog(self);dialog.setWindowTitle('新增大事記');layout=QVBoxLayout(dialog)
-        number=QSpinBox();number.setRange(1,999999);number.setValue(max((r['number'] for r in self.session.pages['diary']),default=0)+1);layout.addWidget(QLabel('項次'));layout.addWidget(number)
         calendar=QCalendarWidget();calendar.setSelectedDate(QDate.currentDate());layout.addWidget(calendar)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Ok|QDialogButtonBox.StandardButton.Cancel);buttons.accepted.connect(dialog.accept);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons)
         if dialog.exec()==QDialog.DialogCode.Accepted:
-            rows=deepcopy(self.session.pages['diary']);row=dict(id=uuid.uuid4().hex,number=number.value(),date=calendar.selectedDate().toString('yyyy-MM-dd'),description='',note='');rows.append(row)
+            rows=deepcopy(self.session.pages['diary']);row=dict(id=uuid.uuid4().hex,number=max((r['number'] for r in rows),default=0)+1,date=calendar.selectedDate().toString('yyyy-MM-dd'),description='',note='');rows.append(row)
+            self.diary_search.clear();self.diary_sort.setCurrentIndex(0)
             try:self.commit_extra('diary',rows)
             except ValueError as exc:QMessageBox.warning(self,'無法新增',str(exc));return
-            for i,r in enumerate(sorted(rows,key=lambda r:r['number'])):
-                if r['id']==row['id']:self.diary_table.setCurrentCell(i,2);self.diary_table.editItem(self.diary_table.item(i,2));break
+            for i,r in enumerate(rows):
+                if r['id']==row['id']:self.diary_table.setCurrentCell(i,1);self.diary_table.editItem(self.diary_table.item(i,1));break
 
     def capture_diary(self,item):
         if self.extra_loading or not self.session or 'diary' not in self.session.unlocked:return
         rid=item.data(Qt.ItemDataRole.UserRole);rows=deepcopy(self.session.pages['diary'])
         for row in rows:
-            if row['id']==rid:row[['number','date','description','note'][item.column()]]=item.text()
+            if row['id']==rid:row[['date','description','note'][item.column()]]=item.text()
         try:
             for row in rows:row['number']=int(row['number'])
             self.commit_extra('diary',rows,False);self.resize_diary()
@@ -204,15 +247,24 @@ class AdvancedForms:
         outer,body=self.edit_page(key);self.tabs.addTab(outer,title);layout=QVBoxLayout(body);tools=self.toolstrip(layout)
         for text,fn in [('加入檔案',lambda:self.choose_assets(key)),('新增分類',lambda:self.add_category(key)),('編輯分類',lambda:self.edit_category(key)),('編輯／重新連結',lambda:self.edit_asset(key)),('移除清單',lambda:self.remove_asset(key))]:self.extra_button(key,tools,text,fn)
         self.extra_button(key,tools,'更新庫存',lambda:self.update_inventory(key))
-        sort=QComboBox();sort.addItems(['手動順序','名稱排序','拍攝日期排序']);sort.setCurrentIndex(int(self.settings.value('assets/'+key+'/sort',0)));tools.addWidget(sort)
+        sort=QComboBox();sort.addItems(['手動順序','名稱排序','拍攝日期排序']+(['項次升冪','項次降冪','文件日期排序'] if key=='documents' else []));sort.setCurrentIndex(int(self.settings.value('assets/'+key+'/sort',0)));tools.addWidget(sort)
+        if key=='documents':
+            self.extra_button(key,tools,'重新編項次',self.renumber_documents)
+            columns=QPushButton('顯示欄位');columns.clicked.connect(self.choose_document_columns);tools.addWidget(columns)
         self.extra_button(key,tools,'上移',lambda:self.move_asset(key,-1));self.extra_button(key,tools,'下移',lambda:self.move_asset(key,1))
         for text,fn in [('開啟',lambda:self.open_asset(key)),('完整備份',self.backup_library),('還原備份',self.restore_library)]:
             button=QPushButton(text);button.clicked.connect(fn);tools.addWidget(button)
         splitter=QSplitter();layout.addWidget(splitter);categories=QTreeWidget();categories.setHeaderLabel('分類');splitter.addWidget(categories)
-        table=FileTable(0,5);table.setHorizontalHeaderLabels(['文件名稱' if key=='documents' else '照片名稱','庫存檔','分類','狀態','備註']);table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows);table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection);table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers);splitter.addWidget(table)
-        for col,width in enumerate([260,90,140,180,250]):table.setColumnWidth(col,width)
+        fields=DOCUMENT_COLUMNS if key=='documents' else PHOTO_COLUMNS
+        table=FileTable(0,len(fields));table.setHorizontalHeaderLabels([v for k,v in fields]);table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows);table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection);table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers);splitter.addWidget(table)
+        widths=dict(number=75,name=260,document_no=180,document_date=140,stock=90,category=140,status=180,note=250)
+        for col,(field,title) in enumerate(fields):table.setColumnWidth(col,widths[field])
         preview=QStackedWidget();splitter.addWidget(preview);info=QPlainTextEdit();info.setReadOnly(True);preview.addWidget(info);photo=QLabel('選擇檔案以預覽');photo.setAlignment(Qt.AlignmentFlag.AlignCenter);photo.setWordWrap(True);preview.addWidget(photo);pdf=PdfReader();preview.addWidget(pdf);splitter.setSizes([170,500,400])
-        self.asset_ui[key]=dict(categories=categories,table=table,preview=preview,info=info,photo=photo,pdf=pdf,selected=None,filter='',sort=sort,reading=False)
+        self.asset_ui[key]=dict(categories=categories,table=table,preview=preview,info=info,photo=photo,pdf=pdf,selected=None,filter='',sort=sort,reading=False,fields=fields)
+        if key=='documents':
+            hidden=[field for field,title in fields if self.settings.value('documents/hidden/'+field,False,type=bool)]
+            if {'number','name'}<=set(hidden):hidden.remove('name')
+            self.set_document_columns(hidden)
         sort.currentIndexChanged.connect(lambda index,k=key:(self.settings.setValue('assets/'+k+'/sort',index),self.populate_asset_rows(k)))
         photo.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Ignored)
         splitter.setChildrenCollapsible(False)
@@ -259,7 +311,7 @@ class AdvancedForms:
         except ValueError as exc:QMessageBox.warning(self,'無法移動分類',str(exc))
 
     def stock_changed(self,key,item):
-        if self.extra_loading or item.column()!=1 or not self.session or key not in self.session.unlocked:return
+        if self.extra_loading or item.column()!=self.asset_column(key,'stock') or not self.session or key not in self.session.unlocked:return
         rid=item.data(Qt.ItemDataRole.UserRole);row=next(r for r in self.session.pages[key]['rows'] if r['id']==rid)
         wanted=item.checkState()==Qt.CheckState.Checked
         if wanted==row['stock']:return
@@ -305,6 +357,7 @@ class AdvancedForms:
     def edit_asset(self,key):
         row=self.selected_asset(key)
         if not row:return
+        if key=='documents':return self.edit_document(row)
         dialog=QDialog(self);dialog.setWindowTitle('文件資料與重新連結');layout=QVBoxLayout(dialog);name=QLineEdit(row['name']);name.setObjectName('asset-name');layout.addWidget(QLabel('顯示名稱'));layout.addWidget(name)
         category=QComboBox();category.addItem('未分類','')
         for c in self.session.pages[key]['categories']:category.addItem(c['name'],c['id'])
@@ -409,9 +462,7 @@ class AdvancedForms:
                 expanded=visible|{c['id'] for c in self.session.pages[key]['categories'] if c['parent'] in visible}
                 if expanded==visible:break
                 visible=expanded
-            rows=list(self.session.pages[key]['rows'])
-            if ui['sort'].currentIndex()==1:rows.sort(key=lambda r:r['name'].casefold())
-            if ui['sort'].currentIndex()==2:rows.sort(key=lambda r:(not bool(r.get('capture_date')),r.get('capture_date',''),r['name'].casefold()))
+            rows=document_order(self.session.pages[key]['rows'],ui['sort'].currentIndex())
             for row in rows:
                 if row['category'] not in visible:continue
                 i=table.rowCount();table.insertRow(i)
@@ -421,11 +472,12 @@ class AdvancedForms:
                 if source.is_file() and 'source_mtime_ns' in row:
                     stat=source.stat()
                     if stat.st_mtime_ns!=row['source_mtime_ns'] or stat.st_size!=row['source_size']:status+='／來源已更新'
-                for j,text in enumerate([row['name'],'',categories.get(row['category'],'未分類'),status,row['note']]):
-                    item=QTableWidgetItem(text);item.setData(Qt.ItemDataRole.UserRole,row['id'])
-                    if j==1:item.setCheckState(Qt.CheckState.Checked if row['stock'] else Qt.CheckState.Unchecked)
+                values=dict(row,stock='',category=categories.get(row['category'],'未分類'),status=status)
+                for j,(field,title) in enumerate(ui['fields']):
+                    item=QTableWidgetItem(str(values[field]));item.setData(Qt.ItemDataRole.UserRole,row['id'])
+                    if field=='stock':item.setCheckState(Qt.CheckState.Checked if row['stock'] else Qt.CheckState.Unchecked)
                     table.setItem(i,j,item)
-                if selected==row['id']:table.setCurrentCell(i,0)
+                if selected==row['id']:table.setCurrentCell(i,next(c for c in range(table.columnCount()) if not table.isColumnHidden(c)))
                 if key=='photos':
                     table.setRowHeight(i,90);table.setIconSize(QSize(100,75))
                     try:self.thumbnail_jobs.append((key,row['id'],self.store.project_id,self.thumbnail_pool.submit(self.read_photo,available_path(self.store.path,row))))
@@ -434,6 +486,7 @@ class AdvancedForms:
 
     def populate_advanced(self,key=None):
         self.extra_loading=True
+        if key in (None,'deadline_tracking'):self.refresh_tracking()
         if key in (None,'details'):
             for kind,ui in self.detail_ui.items():
                 selected=ui['versions'].currentData();ui['versions'].clear()
@@ -441,9 +494,9 @@ class AdvancedForms:
                 for batch in batches:ui['versions'].addItem(batch.get('name',batch['filename']),batch['id'])
                 ui['versions'].setCurrentIndex(max(0,ui['versions'].findData(selected)) if selected else max(0,len(batches)-1))
         if key in (None,'diary'):
-            rows=sorted(self.session.pages['diary'],key=lambda r:r['number']) if self.session else [];self.diary_table.setRowCount(len(rows))
+            rows=self.diary_rows();self.diary_table.setRowCount(len(rows));self.diary_count.setText(f'{len(rows)}／{len(self.session.pages["diary"]) if self.session else 0} 筆')
             for i,row in enumerate(rows):
-                for j,name in enumerate(['number','date','description','note']):
+                for j,name in enumerate(['date','description','note']):
                     item=QTableWidgetItem(str(row[name]));item.setData(Qt.ItemDataRole.UserRole,row['id']);self.diary_table.setItem(i,j,item)
             self.resize_diary()
         for name,ui in self.asset_ui.items():
@@ -470,7 +523,7 @@ class AdvancedForms:
             if key in self.asset_ui:
                 ui=self.asset_ui[key];ui['pdf'].set_editable(editable)
                 for row in range(ui['table'].rowCount()):
-                    item=ui['table'].item(row,1)
+                    item=ui['table'].item(row,self.asset_column(key,'stock'))
                     flags=item.flags()
                     item.setFlags(flags|Qt.ItemFlag.ItemIsUserCheckable if editable else flags&~Qt.ItemFlag.ItemIsUserCheckable)
         self.diary_table.setEditTriggers(QAbstractItemView.EditTrigger.AllEditTriggers if ready and 'diary' in self.session.unlocked else QAbstractItemView.EditTrigger.NoEditTriggers)

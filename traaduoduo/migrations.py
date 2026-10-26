@@ -1,7 +1,7 @@
-"""Initialize schema 8 only in a new database; caller owns the transaction.
+"""Initialize schema 9 only in a new database; caller owns the transaction.
 Legacy sources are read-only and copied by importer, never upgraded in place.
 """
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 10
 
 
 def migrate_new(connection):

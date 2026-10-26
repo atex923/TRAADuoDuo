@@ -1,2 +1,6 @@
-VERSION = 'V0.6.1'
+VERSION = 'V0.8.1'
+RELEASE_DATE = '20261023'
+DISPLAY_VERSION = VERSION+'('+RELEASE_DATE+')'
+DESIGNER = 'Atex Lin'
+FEEDBACK_EMAIL = 'atexapp.lin@gmail.com'
 APP_NAME = '踢厄工程管理坊'

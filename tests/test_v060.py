@@ -125,14 +125,14 @@ class NewUITests(unittest.TestCase):
         w.layout_settings.reset();self.assertGreaterEqual(sum(view.columnWidth(c) for c in range(view.model().columnCount())),view.viewport().width()-10)
     def test_diary_inline_edit_and_variable_height_preserved(self):
         w=self.window;w.session.unlocked.add('diary');rows=[dict(id='diary1',number=1,date='2026-10-17',description='記錄',note='')];w.commit_extra('diary',rows)
-        w.diary_table.item(0,2).setText('測試說明'*120);self.assertEqual(w.session.pages['diary'][0]['description'],'測試說明'*120);self.assertGreater(w.diary_table.rowHeight(0),42)
+        w.diary_table.item(0,1).setText('測試說明'*120);self.assertEqual(w.session.pages['diary'][0]['description'],'測試說明'*120);self.assertGreater(w.diary_table.rowHeight(0),42)
         w.store.save({'diary':w.session.pages['diary']},0);self.assertEqual(ProjectStore(self.path).load()['pages']['diary'][0]['id'],'diary1')
     def test_stock_checkbox_runs_verified_copy_and_uncheck_keeps_original(self):
         w=self.window;source=Path(self.temp.name)/'doc.txt';source.write_text('content');w.session.unlocked.add('documents')
         w.commit_extra('documents',dict(categories=[],rows=[new_asset(source)]));table=w.asset_ui['documents']['table']
-        table.item(0,1).setCheckState(Qt.CheckState.Checked);self.wait_io();row=w.session.pages['documents']['rows'][0]
+        table.item(0,w.asset_column('documents','stock')).setCheckState(Qt.CheckState.Checked);self.wait_io();row=w.session.pages['documents']['rows'][0]
         self.assertTrue(row['stock']);managed=available_path(self.path,row);self.assertTrue(managed.exists())
-        table.item(0,1).setCheckState(Qt.CheckState.Unchecked);self.assertFalse(w.session.pages['documents']['rows'][0]['stock']);self.assertTrue(managed.exists());self.assertTrue(source.exists())
+        table.item(0,w.asset_column('documents','stock')).setCheckState(Qt.CheckState.Unchecked);self.assertFalse(w.session.pages['documents']['rows'][0]['stock']);self.assertTrue(managed.exists());self.assertTrue(source.exists())
     def test_award_star_center_and_extension_delete_undo(self):
         w=self.window;bid=dict(id='b',number=1,awarded=True,review_start='',review_end='',online_start='',online_end='',opening='',committee='',award_date='2026-10-17');w.session.pages['bids']=[bid];w.populate_bids()
         self.assertEqual(w.bid_table.item(0,0).text(),'＊');self.assertEqual(w.bid_table.item(0,0).textAlignment(),Qt.AlignmentFlag.AlignCenter)
@@ -151,7 +151,7 @@ class NewUITests(unittest.TestCase):
 
 class PrecisionTests(unittest.TestCase):
     def test_round_yuan_does_not_change_raw_thousand_cutoff(self):
-        side=default_pages('計算')['costs']['budget'];side['award_total']='5039999.2';r=management_fee(side,'budget')
+        side=default_pages('計算')['costs']['budget'];side['labor']='5039999.2';r=management_fee(side,'budget')
         self.assertEqual(r['total'],Decimal('150600'));self.assertEqual(r['default'],Decimal('150000'))
     def test_display_two_decimals_retains_input(self):
         value='2086.9999999999995';self.assertEqual(format_decimal(value),'2,087.00');self.assertEqual(value,'2086.9999999999995')

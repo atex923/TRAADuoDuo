@@ -58,17 +58,17 @@ class FinanceTests(unittest.TestCase):
         side=empty_costs()['budget']
         points={5000000:150000,25000000:450000,100000000:1200000,500000000:4000000,600000000:4500000}
         for value,expected in points.items():
-            side['award_total']=str(value)
+            side['labor']=str(value)
             self.assertEqual(management_fee(side,'budget')['total'],expected)
             for delta in (-1,1):
-                side['award_total']=str(value+delta)
+                side['labor']=str(value+delta)
                 result=management_fee(side,'budget')
                 self.assertGreaterEqual(result['total'],0)
                 self.assertEqual(result['default']%1000,0)
                 rates={5000000:('0.03','0.015'),25000000:('0.015','0.01'),100000000:('0.01','0.007'),500000000:('0.007','0.005'),600000000:('0.005','0.005')}
                 self.assertEqual(result['raw_total'],Decimal(expected)+Decimal(delta)*Decimal(rates[value][0 if delta<0 else 1]))
                 self.assertEqual(result['total'],Decimal(expected))
-        side['award_total']='5000001'
+        side['labor']='5000001'
         self.assertEqual(management_fee(side,'budget')['total'],Decimal('150000'))
         self.assertEqual(management_fee(side,'budget')['raw_total'],Decimal('150000.015'))
         self.assertEqual(management_fee(side,'budget')['default'],150000)
@@ -78,7 +78,7 @@ class FinanceTests(unittest.TestCase):
     def test_cost_save_manual_guarantees_and_base_selection(self):
         w=self.window
         w.basic_tabs.setCurrentIndex(1); w.toggle_lock('costs')
-        w.cost_fields['budget']['award_total'].setText('5,000,000')
+        w.cost_fields['budget']['labor'].setText('5,000,000')
         w.cost_fields['contract']['work'].setText('1000000')
         w.cost_fields['contract']['award_total'].setText('1050000')
         w.capture_costs()
@@ -103,10 +103,10 @@ class FinanceTests(unittest.TestCase):
 
     def test_management_manual_survives_base_changes_and_restore(self):
         w=self.window; w.toggle_lock('costs')
-        w.cost_fields['budget']['award_total'].setText('5000000'); w.capture_costs()
+        w.cost_fields['budget']['labor'].setText('5000000'); w.capture_costs()
         w.fee_manual['budget'].setChecked(True)
         w.cost_fields['budget']['management_adjustment'].setText('149999'); w.capture_costs()
-        w.cost_fields['budget']['award_total'].setText('25000000'); w.capture_costs()
+        w.cost_fields['budget']['labor'].setText('25000000'); w.capture_costs()
         self.assertEqual(w.session.pages['costs']['budget']['management_amount'],'149999')
         w.fee_manual['budget'].setChecked(False)
         self.assertEqual(w.session.pages['costs']['budget']['management_amount'],'450000')
@@ -211,7 +211,7 @@ class FinanceTests(unittest.TestCase):
         self.assertFalse(w.bid_buttons[0].isEnabled())
         self.assertFalse(w.submit_bid(bid()))
         w.basic_tabs.setCurrentIndex(1); w.toggle_lock('costs')
-        w.cost_fields['budget']['award_total'].setText('5000000'); w.capture_costs()
+        w.cost_fields['budget']['labor'].setText('5000000'); w.capture_costs()
         self.assertEqual(w.session.pages['costs']['budget']['management_amount'],'150000')
         w.undo()
         self.assertEqual(w.session.pages['costs']['budget']['award_total'],'')

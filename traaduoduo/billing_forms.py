@@ -8,7 +8,8 @@ from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QGridLayout,QLabe
     QDialog,QDialogButtonBox,QLineEdit,QScrollArea,QTableWidgetItem,QAbstractItemView,QHeaderView,QMessageBox,QToolTip)
 from .forms import ProjectTable,DateField,info_button
 from .billing import (PAYMENT_KEYS,CONTRACT_MONEY,DATES,CATEGORIES,STAGES,new_record,validate_billing,
-                      summary,stage_summary,period_options,fmt,number,total,warnings,allocation_filled,contract_progress)
+                      summary,stage_summary,period_options,fmt,number,total,warnings,allocation_filled,contract_progress,ADMIN_MONEY,ADMIN_DATES,effective_period)
+from .presentation import MoneyField,CompactSummary
 
 class MoneyItem(QTableWidgetItem):
     def __lt__(self,other):
@@ -32,7 +33,7 @@ class BillingForms:
         self.payment_columns={
             'contract_payments':[('period','期數'),*CONTRACT_MONEY,*DATES,('note','備註')],
             'other_payments':[('period','期數'),('payment_date','計價日期'),('item','計價項目'),('stage','提撥階段'),('amount','計價金額'),('tax','計價稅金'),('status','分攤狀態'),('note','備註')],
-            'admin_payments':[('period','期數'),*CATEGORIES,('amount','計價合計'),('tax','計價稅金'),('estimated','估驗金額（稅）'),('paid','實發金額'),('paid_tax','實發稅金'),('retention','保留款'),*DATES,('note','備註')]}
+            'admin_payments':[('period','期數'),*CATEGORIES,*ADMIN_MONEY,*ADMIN_DATES,('note','備註')]}
         for key,title in zip(PAYMENT_KEYS,['發包工程','發包以外','管理費']):
             outer,content=self.edit_page(key); self.billing_tabs.addTab(outer,title)
             layout=QVBoxLayout(content)
@@ -44,7 +45,9 @@ class BillingForms:
                 self.allocation_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
                 self.allocation_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
                 self.allocation_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-                self.allocation_table.setFixedHeight(185)
+                row_height=round(18*self.logicalDpiY()/72);self.allocation_table.verticalHeader().setMinimumSectionSize(1);self.allocation_table.verticalHeader().setDefaultSectionSize(row_height)
+                for r in range(4):self.allocation_table.setRowHeight(r,row_height)
+                self.allocation_table.setFixedHeight(row_height*4+self.allocation_table.horizontalHeader().sizeHint().height()+28)
                 self.allocation_table.cellDoubleClicked.connect(lambda row,*_:self.edit_allocation(row))
                 layout.addWidget(self.allocation_table)
                 allocation_actions=QHBoxLayout(); self.allocation_button=QPushButton('編輯選取階段分攤')
@@ -67,12 +70,13 @@ class BillingForms:
             self.payment_periods[key].currentIndexChanged.connect(lambda *_,k=key:self.refresh_payment_summary(k))
             top.addWidget(QLabel('累計截至')); top.addWidget(self.payment_periods[key])
             layout.addLayout(top)
-            label=QLabel(); label.setWordWrap(True); label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            label=CompactSummary() if key=='admin_payments' else QLabel(); label.setWordWrap(True); label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             self.payment_summaries[key]=label; layout.addWidget(label)
             font=label.font(); font.setPointSize(16); label.setFont(font)
             label.setStyleSheet('QLabel {background:#CEFFCE;color:#173a22;font-size:16pt;padding:8px;border-radius:5px;}')
             if key=='admin_payments':
                 label.setObjectName('adminStatistics')
+                label.setStyleSheet('QTextBrowser {background:#CEFFCE;color:#173a22;font-size:16pt;padding:0px;border:1px solid #94bc94;}')
             actions=QHBoxLayout(); self.payment_buttons[key]=[]
             for text,handler in [('新增',lambda checked=False,k=key:self.edit_payment(k)),
                 ('編輯',lambda checked=False,k=key:self.edit_selected_payment(k)),
@@ -114,7 +118,7 @@ class BillingForms:
             combo.blockSignals(True); combo.clear(); combo.addItem('全部期別',None)
             periods=set(period_options(rows))
             if key=='admin_payments':
-                periods.update(a['period'] for a in self.session.pages[key]['allocations'] if a['period']!='')
+                periods.update(p for a in self.session.pages[key]['allocations'] if (p:=effective_period(self.session.pages,a['stage'])) is not None)
             for period in sorted(periods):
                 combo.addItem('第 '+str(period)+' 期',period)
             combo.setCurrentIndex(max(0,combo.findData(selected))); combo.blockSignals(False)
@@ -129,10 +133,11 @@ class BillingForms:
                         text=stage['label'] if stage else ('待指定' if row.get('item')=='transfer' else '')
                     if field=='status':
                         text=('已填分攤' if stage and stage['filled'] else '待分攤') if row.get('item')=='transfer' else ''
-                    numeric=field in {k for k,_ in CONTRACT_MONEY+CATEGORIES}
+                    numeric=field in {k for k,_ in CONTRACT_MONEY+CATEGORIES+ADMIN_MONEY} or field in ('amount','tax')
                     cell=MoneyItem(fmt(text)) if numeric else MoneyItem(str(text)) if field=='period' else QTableWidgetItem(str(text))
                     if field=='period':
                         cell.setData(Qt.ItemDataRole.DisplayRole,row['period'])
+                    cell.setTextAlignment((Qt.AlignmentFlag.AlignRight if numeric else Qt.AlignmentFlag.AlignHCenter)|Qt.AlignmentFlag.AlignVCenter)
                     cell.setData(Qt.ItemDataRole.UserRole,row['id']); cell.setToolTip(str(text))
                     if row.get('item')=='transfer' and field in ('amount','status'):
                         cell.setForeground(QColor('#1657b5' if stage and stage['filled'] else '#bd1b1b'))
@@ -145,6 +150,7 @@ class BillingForms:
                    '；'.join(value['warnings']) or ('已填分攤' if value['filled'] else '待分攤')]
             for c,text in enumerate(cells):
                 item=QTableWidgetItem(text); item.setToolTip(text)
+                item.setTextAlignment((Qt.AlignmentFlag.AlignRight if 2<=c<=8 else Qt.AlignmentFlag.AlignHCenter)|Qt.AlignmentFlag.AlignVCenter)
                 if c in (2,3,9):
                     item.setForeground(QColor('#1657b5' if value['filled'] else '#bd1b1b'))
                 self.allocation_table.setItem(r,c,item)
@@ -175,13 +181,13 @@ class BillingForms:
             names += [(c,'累計'+label) for c,label in CATEGORIES]
             names += [(c+'_available',label+'可支用') for c,label in CATEGORIES]
             if values['undated_allocations']:
-                text+=f'\n⚠ {values["undated_allocations"]} 筆分攤未填生效期，請補齊後再核對餘額。'
+                text+=f'\n⚠ {values["undated_allocations"]} 筆分攤尚無唯一對應提撥，暫未納入餘額。'
         if key=='admin_payments':
             rows=[]
             for title,group in [('計價累計',names[:2]),('費別累計',names[2:5]),('可支用額',names[5:8])]:
-                cells='<td>'+title+'</td>'+''.join('<td>'+label.replace('累計','').replace('可支用','')+'　'+fmt(values[field])+' 元</td>' for field,label in group)
+                cells='<td align="left">'+title+'　</td>'+''.join('<td align="left">'+label.replace('累計','').replace('可支用','')+'　'+fmt(values[field])+' 元　</td>' for field,label in group)
                 rows.append('<tr>'+cells+'</tr>')
-            self.payment_summaries[key].setText('<div style="font-size:16pt">累計計價與可支用額</div><table style="font-size:16pt" cellspacing="4" cellpadding="2">'+''.join(rows)+'</table>'+text)
+            self.payment_summaries[key].setText('<div style="font-size:16pt">累計計價與可支用額</div><table style="font-size:16pt" cellspacing="0" cellpadding="0">'+''.join(rows)+'</table>'+text)
         else:
             display='　｜　'.join(label+' '+fmt(values[field])+' 元' for field,label in names)
             if key=='contract_payments':
@@ -207,7 +213,7 @@ class BillingForms:
         existing=deepcopy(row) if row else new_record(key,uuid.uuid4().hex,max((r['period'] for r in self.payment_rows(key)),default=0)+1)
         dialog=QDialog(self); dialog.setWindowTitle('工程計價資料'); dialog.setObjectName('paymentDialog')
         box=QVBoxLayout(dialog); grid=QGridLayout(); box.addLayout(grid); fields={}
-        columns=[('period','期數')]+([('item','計價項目'),('stage','提撥階段'),('amount','計價金額'),('tax','計價稅金'),('payment_date','計價日期')] if key=='other_payments' else ([*CATEGORIES] if key=='admin_payments' else [])+CONTRACT_MONEY+DATES)+[('note','備註')]
+        columns=[('period','期數')]+([('item','計價項目'),('stage','提撥階段'),('amount','計價金額'),('tax','計價稅金'),('payment_date','計價日期')] if key=='other_payments' else [*CATEGORIES,*ADMIN_MONEY,*ADMIN_DATES] if key=='admin_payments' else CONTRACT_MONEY+DATES)+[('note','備註')]
         for index,(field,label) in enumerate(columns):
             if field in ('item','stage'):
                 widget=QComboBox()
@@ -216,8 +222,9 @@ class BillingForms:
                     widget.addItem(title,data)
                 widget.setCurrentIndex(max(0,widget.findData(existing[field])))
             else:
-                widget=DateField() if field in {k for k,_ in DATES} else QLineEdit()
+                widget=DateField() if field in {k for k,_ in DATES+ADMIN_DATES} else MoneyField(2) if field in {k for k,_ in CONTRACT_MONEY+CATEGORIES+ADMIN_MONEY} or field in ('amount','tax') else QLineEdit()
                 widget.setText(str(existing.get(field,'')))
+                widget.setAlignment(Qt.AlignmentFlag.AlignRight if isinstance(widget,MoneyField) else Qt.AlignmentFlag.AlignCenter)
                 if field=='period':
                     widget.setToolTip('正整數業務期別；可同一期多筆，累計按期數，不按列號或日期。')
             widget.setObjectName('payment_'+field); widget.setAccessibleName(label)
@@ -252,7 +259,7 @@ class BillingForms:
             try:
                 candidate=deepcopy(existing)
                 for field,widget in fields.items():
-                    candidate[field]=widget.currentData() if isinstance(widget,QComboBox) else widget.text().strip()
+                    candidate[field]=widget.currentData() if isinstance(widget,QComboBox) else widget.value() if isinstance(widget,MoneyField) else widget.text().strip()
                     if field in {k for k,_ in CONTRACT_MONEY+CATEGORIES}:
                         candidate[field]=candidate[field].replace(',','')
                 candidate['period']=int(candidate['period'])
@@ -298,15 +305,15 @@ class BillingForms:
         if not self.session or 'admin_payments' not in self.session.unlocked or not 0<=index<4:
             return
         if not self.allocation_allowed(index):
-            self.message.setText('請先完整填寫並儲存上一階段分攤及生效期'); return
+            self.message.setText('請先儲存上一階段分攤並建立對應提撥'); return
         stage=STAGES[index][0]; value=self.session.pages['admin_payments']
         existing=next(a for a in value['allocations'] if a['stage']==stage)
         dialog=QDialog(self); dialog.setObjectName('allocationDialog'); dialog.setWindowTitle(STAGES[index][1])
         box=QVBoxLayout(dialog); grid=QGridLayout(); box.addLayout(grid); fields={}
-        for r,(field,label) in enumerate([('period','分攤生效期（歷史期基準用）'),*CATEGORIES]):
-            widget=QLineEdit(str(existing[field])); widget.setObjectName('allocation_'+field); fields[field]=widget
+        for r,(field,label) in enumerate(CATEGORIES):
+            widget=MoneyField(2);widget.setAlignment(Qt.AlignmentFlag.AlignRight);widget.setText(str(existing[field])); widget.setObjectName('allocation_'+field); fields[field]=widget
             grid.addWidget(QLabel(label),r,0)
-            grid.addWidget(self.billing_field_wrapper(widget,label,'空白表示未填；三費別皆填才算已填分攤，可明確填0。生效期僅供歷史範圍計算，必須為正整數或留空。'),r,1)
+            grid.addWidget(self.billing_field_wrapper(widget,label,'三費別皆填才算已填，可明確填0；有效期由同階段提撥期數連動。'),r,1)
         hint=QLabel('提撥由發包以外連動，不可在此改寫。三費別皆填（可填0）才標示已填分攤；留空表示尚未分攤。末期負數檢查僅警告，不自動變號。')
         hint.setWordWrap(True); box.addWidget(hint)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel); box.addWidget(buttons)
@@ -315,7 +322,7 @@ class BillingForms:
         buttons.rejected.connect(dialog.reject)
         def submit():
             try:
-                candidate=dict(existing,**{k:w.text().replace(',','').strip() for k,w in fields.items()})
+                candidate=dict(existing,**{k:w.value() for k,w in fields.items()})
                 if candidate['period']!='':
                     candidate['period']=int(candidate['period'])
                 if self.submit_allocation(candidate):
@@ -333,13 +340,13 @@ class BillingForms:
                 raise ValueError('未知分攤階段')
             index=next(i for i,(s,_,_) in enumerate(STAGES) if s==candidate['stage'])
             if not self.allocation_allowed(index):
-                raise ValueError('請先完整填寫並儲存上一階段分攤及生效期')
+                raise ValueError('請先儲存上一階段分攤並建立對應提撥')
             value['allocations']=[deepcopy(candidate) if a['stage']==candidate['stage'] else a for a in value['allocations']]
             validate_billing('admin_payments',value)
         except (ValueError,ArithmeticError,KeyError) as exc:
             QMessageBox.warning(self,'分攤資料未完成',str(exc)); return False
         self.session.change('admin_payments',value); self.populate_billing(); self.changed()
-        self.save(auto=True)
+        self.save()
         return True
 
     def allocation_allowed(self,index):
@@ -348,7 +355,7 @@ class BillingForms:
         stage=STAGES[index-1][0]
         prior=next(a for a in self.session.saved['admin_payments']['allocations'] if a['stage']==stage)
         current=next(a for a in self.session.pages['admin_payments']['allocations'] if a['stage']==stage)
-        return prior==current and allocation_filled(prior) and prior['period']!=''
+        return prior==current and allocation_filled(prior) and effective_period(self.session.pages,stage) is not None and effective_period(self.session.saved,stage)==effective_period(self.session.pages,stage)
 
     def apply_billing_locks(self,ready):
         for key,buttons in self.payment_buttons.items():
@@ -361,7 +368,7 @@ class BillingForms:
             allowed=self.allocation_allowed(index)
             button.setEnabled(editable and allowed)
             button.setText('編輯分攤' if allowed else '待上期填妥')
-            button.setToolTip('上一階段三費別及生效期完整儲存後開放' if not allowed else '編輯此階段分攤')
+            button.setToolTip('上一階段分攤與對應提撥儲存後開放' if not allowed else '編輯此階段分攤')
 
     def clear_billing(self):
         for table in self.payment_tables.values():

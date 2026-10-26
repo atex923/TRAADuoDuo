@@ -1,0 +1,1 @@
+Real entry point: launched and closed successfully; Qt platform=cocoa.

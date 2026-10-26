@@ -10,10 +10,12 @@ CATEGORIES = [('0C12','0C12差費'),('0C11','0C11加班費'),('0C14','0C14其他
 CONTRACT_MONEY = [('estimated','估驗金額（稅）'),('amount','計價金額'),('tax','計價稅金'),
                   ('paid','實發金額'),('paid_tax','實發稅金'),('retention','保留款')]
 DATES = [('submitted','估驗送件日期'),('payment_date','計價日期'),('reviewed','送審日期')]
+ADMIN_MONEY=[('amount','計價合計'),('tax','計價稅金')]
+ADMIN_DATES=[('payment_date','計價日期'),('reviewed','送審日期')]
 PAYMENT_KEYS = ('contract_payments','other_payments','admin_payments')
 
 def empty_admin():
-    return dict(rows=[],allocations=[dict(stage=s,period='',**{c:'' for c,_ in CATEGORIES}) for s,_,_ in STAGES],available_basis='period')
+    return dict(rows=[],allocations=[dict(stage=s,period='',**{c:'' for c,_ in CATEGORIES}) for s,_,_ in STAGES],available_basis='period',allocation_revision=2)
 
 def new_record(kind,rid,period):
     row=dict(id=rid,period=period,payment_date='',note='')
@@ -29,10 +31,14 @@ def normalize_billing(pages):
     result=deepcopy(pages)
     result.setdefault('contract_payments',[])
     result.setdefault('other_payments',[])
-    admin=empty_admin(); admin.update(result.get('admin_payments',{}))
+    previous=result.get('admin_payments',{});previous_revision=previous.get('allocation_revision',0)
+    admin=empty_admin(); admin.update(previous)
     if admin['available_basis']=='all':
         admin['available_basis']='period'
     result['admin_payments']=admin
+    if previous_revision<2:
+        for a in admin['allocations']:a.setdefault('historical_effective_period',a.get('period',''))
+    admin['allocation_revision']=2
     return result
 
 def number(value):
@@ -107,6 +113,10 @@ def allocation_filled(allocation):
     # An explicitly saved zero is filled; a blank remains unfilled.
     return all(allocation[c]!='' for c,_ in CATEGORIES)
 
+def effective_period(pages,stage):
+    rows=[r for r in pages['other_payments'] if r.get('item')=='transfer' and r.get('stage')==stage]
+    return rows[0]['period'] if len(rows)==1 else None
+
 def stage_summary(pages):
     result=[]; running_transfer=Decimal(0); running_allocation=Decimal(0)
     allocations={a['stage']:a for a in pages['admin_payments']['allocations']}
@@ -119,8 +129,6 @@ def stage_summary(pages):
         filled=allocation_filled(allocation)
         if rows and not filled:
             warnings.append('待分攤')
-        if filled and transfer!=allocated:
-            warnings.append('提撥與分攤不一致')
         if filled and not rows:
             warnings.append('尚無對應提撥')
         if stage=='final':
@@ -143,8 +151,8 @@ def summary(pages,key,period=None):
         result['0A']=total([r for r in rows if r['item']=='0A'],'amount')
     if key=='admin_payments':
         admin=pages[key]
-        allocations=[a for a in admin['allocations'] if a['period']!='' and (period is None or a['period']<=period)]
-        result['undated_allocations']=sum(any(a[c]!='' for c,_ in CATEGORIES) and a['period']=='' for a in admin['allocations'])
+        allocations=[a for a in admin['allocations'] if (p:=effective_period(pages,a['stage'])) is not None and (period is None or p<=period)]
+        result['undated_allocations']=sum(any(a[c]!='' for c,_ in CATEGORIES) and effective_period(pages,a['stage']) is None for a in admin['allocations'])
         for c,_ in CATEGORIES:
             result[c]=total(rows,c)
             result[c+'_available']=total(allocations,c)-result[c]
@@ -166,8 +174,8 @@ def warnings(pages):
     for stage,label,_ in STAGES:
         allocation=allocations[stage]
         if not preceding and any(allocation[c]!='' for c,_ in CATEGORIES):
-            messages.append(label+'：歷史越序分攤已保留；先補齊前階段及生效期再編輯')
-        preceding=preceding and allocation_filled(allocation) and allocation['period']!=''
+            messages.append(label+'：歷史越序分攤已保留；先補齊前階段分攤與對應提撥再編輯')
+        preceding=preceding and allocation_filled(allocation) and effective_period(pages,stage) is not None
     for row in pages['other_payments']:
         if row['item']=='transfer' and not row['stage']:
             messages.append(f"第{row['period']}期管理費提撥尚未對應階段")
@@ -175,8 +183,8 @@ def warnings(pages):
             messages.append(f"第{row['period']}期舊計價項目待分類（原值已保留）")
     for stage in stage_summary(pages):
         messages.extend(stage['label']+'：'+s for s in stage['warnings'])
-    if any(any(a[c]!='' for c,_ in CATEGORIES) and a['period']=='' for a in pages['admin_payments']['allocations']):
-        messages.append('部分分攤未填生效期，未納入可支用額（包含全部期別）；請核對並填寫生效期')
+    if any(any(a[c]!='' for c,_ in CATEGORIES) and effective_period(pages,a['stage']) is None for a in pages['admin_payments']['allocations']):
+        messages.append('部分分攤尚無唯一對應提撥，未納入可支用額；請核對階段提撥紀錄')
     for c,label in CATEGORIES:
         if summary(pages,'admin_payments')[c+'_available']<0:
             messages.append(label+'可支用額為負，請核對')

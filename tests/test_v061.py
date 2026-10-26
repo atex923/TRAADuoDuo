@@ -146,7 +146,7 @@ class RevisionUITests(unittest.TestCase):
             self.assertEqual(subtotal.height(),field.height());self.assertEqual(subtotal.width(),field.width());self.assertTrue(subtotal.isReadOnly())
             label=next(x for x in w.findChildren(QLabel) if x.text()=='包工費以外');self.assertIn('16pt',label.styleSheet())
     def test_management_two_decimals_and_no_calculation_change(self):
-        w=self.window;w.session.unlocked.add('costs');w.cost_fields['budget']['award_total'].setText('5039999.2');w.capture_costs();w.refresh_finance()
+        w=self.window;w.session.unlocked.add('costs');w.cost_fields['budget']['labor'].setText('5039999.2');w.capture_costs();w.refresh_finance()
         self.assertEqual(w.fee_labels['budget'][-1].text(),'150,600.00')
         self.assertEqual(w.cost_fields['budget']['management_adjustment'].text(),'150,000.00')
         self.assertEqual(management_fee(w.session.pages['costs']['budget'],'budget')['default'],150000)
@@ -199,7 +199,7 @@ class RevisionUITests(unittest.TestCase):
         w.session.unlocked.update(('documents','photos'));w.commit_extra('documents',dict(categories=[],rows=[new_asset(source)]))
         w.commit_extra('photos',dict(categories=[],rows=[new_asset(source)]))
         for key in ('documents','photos'):
-            w.asset_ui[key]['table'].item(0,1).setCheckState(Qt.CheckState.Checked);self.wait_io()
+            w.asset_ui[key]['table'].item(0,w.asset_column(key,'stock')).setCheckState(Qt.CheckState.Checked);self.wait_io()
         first=w.session.pages['documents']['rows'][0];second=w.session.pages['photos']['rows'][0]
         self.assertEqual(first['managed'],second['managed']);self.assertIn('未重複複製',w.message.text())
         w.commit_extra('documents',dict(categories=[],rows=[]));self.assertTrue(available_path(self.path,second).exists())

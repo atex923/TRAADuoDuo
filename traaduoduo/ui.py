@@ -7,14 +7,14 @@ import logging
 import sys
 
 from PySide6.QtCore import Qt, QTimer, QDate, QSettings, Signal, QEvent
-from PySide6.QtGui import QIcon, QColor, QTextCharFormat, QPixmap, QFont
+from PySide6.QtGui import QIcon, QColor, QTextCharFormat, QPixmap, QFont,QPen
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
     QHBoxLayout, QGridLayout, QLabel, QPushButton, QTabWidget, QLineEdit,
     QComboBox, QGroupBox, QScrollArea, QDialog, QFileDialog, QMessageBox,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QCalendarWidget,
     QInputDialog, QListWidget, QPlainTextEdit, QTabBar, QSizePolicy,QBoxLayout,QTableView)
 
-from . import VERSION, APP_NAME
+from . import VERSION, APP_NAME,DISPLAY_VERSION
 from .store import ProjectStore, DEFAULT_BASIC
 from .session import EditSession
 from .domain import calculate_day, calculate_finish, count_workdays
@@ -30,6 +30,9 @@ from .billing import PAYMENT_KEYS
 from .advanced_forms import AdvancedForms
 from .layout_settings import LayoutSettings
 from .aa_import import HEADERS
+from .idle_save import IdleSaving,InputActivity
+from .desktop_features import DesktopFeatures
+from .export_forms import ExportForms
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -79,6 +82,7 @@ class MonthCalendar(QCalendarWidget):
             painter.fillRect(rect,QColor('#f4f2e8'))
             painter.setPen(QColor('#999999'))
             painter.drawText(rect,Qt.AlignmentFlag.AlignCenter,str(day.day()))
+            self.paint_border(painter,rect,day)
             painter.restore()
             return
         painter.save()
@@ -104,9 +108,13 @@ class MonthCalendar(QCalendarWidget):
             if index==3 and info['weather']:
                 painter.fillRect(row,QColor('#D0D0D0'))
             painter.drawText(row,Qt.AlignmentFlag.AlignVCenter,painter.fontMetrics().elidedText(text,Qt.TextElideMode.ElideRight,row.width()))
-        painter.setPen(QColor('#316ac5' if day==self.selectedDate() else '#c4ccc7'))
-        painter.drawRect(rect.adjusted(0,0,-1,-1))
+        self.paint_border(painter,rect,day)
         painter.restore()
+
+    def paint_border(self,painter,rect,day):
+        width=2*self.logicalDpiY()/72 if day==QDate.currentDate() else 1
+        pen=QPen(QColor('#316ac5' if day in (self.selectedDate(),QDate.currentDate()) else '#c4ccc7'));pen.setWidthF(width);painter.setPen(pen)
+        inset=max(1,round(width/2));painter.drawRect(rect.adjusted(inset,inset,-inset,-inset))
 
     def eventFilter(self, watched, event):
         view=self.findChild(QTableView,'qt_calendar_calendarview')
@@ -147,7 +155,7 @@ class MonthCalendar(QCalendarWidget):
             super().keyPressEvent(event)
 
 
-class Window(AdvancedForms, BillingForms, FinanceForms, StageForms, QMainWindow):
+class Window(ExportForms,DesktopFeatures,IdleSaving, AdvancedForms, BillingForms, FinanceForms, StageForms, QMainWindow):
     def __init__(self, settings=None):
         super().__init__()
         if sys.platform=='darwin':
@@ -155,12 +163,13 @@ class Window(AdvancedForms, BillingForms, FinanceForms, StageForms, QMainWindow)
         self.settings = settings or QSettings('TRAADuoDuo', 'TRAADuoDuo')
         self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='project-io')
         self.future = None
+        self._auto_job=None;self._auto_after=[]
         self.store = None
         self.session = None
         self.revision = 0
         self.loading = False
         self.path = ''
-        self.setWindowTitle(f'{APP_NAME}  TRAADuoDuo {VERSION}')
+        self.setWindowTitle(f'{APP_NAME}  TRAADuoDuo {DISPLAY_VERSION}')
         self.setWindowIcon(QIcon(str(ROOT / 'assets/app_icon.png')))
         self.resize(1160, 800)
         self.setMinimumSize(860, 650)
@@ -173,7 +182,7 @@ class Window(AdvancedForms, BillingForms, FinanceForms, StageForms, QMainWindow)
         icon = QLabel()
         icon.setPixmap(QPixmap(str(ROOT / 'assets/app_icon.png')).scaled(56, 56, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         banner.addWidget(icon)
-        title = QLabel(f'{APP_NAME}  <small>TRAADuoDuo {VERSION}</small><br><small>工程資料・施工日曆・案件管理</small>')
+        title = QLabel(f'{APP_NAME}  <small>TRAADuoDuo {DISPLAY_VERSION}</small><br><small>工程資料・施工日曆・案件管理</small>')
         title.setObjectName('title')
         banner.addWidget(title, 1)
         about = QPushButton('關於')
@@ -187,9 +196,9 @@ class Window(AdvancedForms, BillingForms, FinanceForms, StageForms, QMainWindow)
         self.save_button = self.button('儲存', lambda: self.save())
         self.new_button = self.button('新增工程案', self.new_project)
         self.undo_button = self.button('回復動作', self.undo)
-        self.print_button = self.button('列印', lambda: None)
+        self.print_button = self.button('匯出', self.export_report_dialog)
         self.print_button.setEnabled(False)
-        self.print_button.setToolTip('本版尚未提供列印')
+        self.print_button.setToolTip('依目前工程與頁面匯出 PDF／Excel')
         self.db_button = self.button('資料庫', self.database_panel)
         self.db_button.setText('選擇／管理')
         for button in (self.save_button, self.new_button, self.undo_button, self.print_button):
@@ -271,7 +280,7 @@ class Window(AdvancedForms, BillingForms, FinanceForms, StageForms, QMainWindow)
         self.primary_tabs.setMaximumWidth(self.primary_tabs.sizeHint().width())
         self.primary_tabs.setFixedWidth(self.primary_tabs.sizeHint().width())
         # Keep the original page containers and indices; only move navigation.
-        for widget in (self.tabs, self.basic_tabs, self.calendar_tabs,self.billing_tabs,self.detail_tabs):
+        for widget in (self.tabs, self.basic_tabs, self.calendar_tabs,self.billing_tabs,self.detail_tabs,self.diary_tabs):
             widget.tabBar().hide()
         self.primary_tabs.currentChanged.connect(self.tabs.setCurrentIndex)
         self.secondary_tabs.currentChanged.connect(self.select_subpage)
@@ -280,6 +289,8 @@ class Window(AdvancedForms, BillingForms, FinanceForms, StageForms, QMainWindow)
         self.calendar_tabs.currentChanged.connect(self.sync_tab_header)
         self.billing_tabs.currentChanged.connect(self.sync_tab_header)
         self.detail_tabs.currentChanged.connect(self.sync_tab_header)
+        self.diary_tabs.currentChanged.connect(self.sync_tab_header)
+        self.diary_tabs.currentChanged.connect(self.update_actions)
         self.sync_tab_header()
         self.about_toolbar=QWidget()
         self.about_toolbar.setObjectName('aboutToolbar')
@@ -298,8 +309,10 @@ class Window(AdvancedForms, BillingForms, FinanceForms, StageForms, QMainWindow)
         self.poll.start()
         self.autosave = QTimer(self)
         self.autosave.setSingleShot(True)
-        self.autosave.setInterval(1200)
-        self.autosave.timeout.connect(lambda: self.save(auto=True))
+        self.autosave.setInterval(60000)
+        self.autosave.timeout.connect(self.idle_timeout)
+        self.input_activity=InputActivity(self);QApplication.instance().installEventFilter(self.input_activity)
+        self.poll.timeout.connect(self.poll_background_save)
         self.tabs.currentChanged.connect(self.update_actions)
         self.tabs.currentChanged.connect(lambda index: self.refresh_calendar() if index==1 else None)
         self.basic_tabs.currentChanged.connect(self.update_actions)
@@ -309,11 +322,15 @@ class Window(AdvancedForms, BillingForms, FinanceForms, StageForms, QMainWindow)
         for key,ui in self.detail_ui.items():
             self.layout_settings.table(ui['tree'],'details/'+key,HEADERS)
             for i in range(16):ui['tree'].setColumnHidden(i,self.settings.value(f'details/{key}/hidden/{i}',False,type=bool))
-        self.layout_settings.table(self.diary_table,'diary',['number','date','description','note'])
-        for key,ui in self.asset_ui.items():self.layout_settings.table(ui['table'],key,['name','stock','category','status','note'])
+        self.layout_settings.table(self.diary_table,'diary',['date','description','note'])
+        for key,ui in self.asset_ui.items():self.layout_settings.table(ui['table'],key,[k for k,v in ui['fields']])
+        self.layout_settings.table(self.tracking_table,'deadline_tracking',['number','alert','issued_at','document_no','due_date','work','completed_date','overdue_date'])
+        self.layout_settings.table(self.upcoming_table,'deadline_upcoming',['due_date','work','remaining'])
         self.calendar.bind_width_settings(self.settings)
         reset=self.button('還原欄寬',self.layout_settings.reset);toolbar.addWidget(reset)
         self.update_actions()
+
+        self.install_tray()
 
     def button(self, text, handler):
         button = QPushButton(text)
@@ -329,6 +346,7 @@ class Window(AdvancedForms, BillingForms, FinanceForms, StageForms, QMainWindow)
                 layout.setDirection(QBoxLayout.Direction.TopToBottom if self.width()<threshold else QBoxLayout.Direction.LeftToRight)
 
     def active_subtabs(self):
+        if self.tabs.currentIndex()==4:return self.diary_tabs
         if self.tabs.currentIndex() == 0:
             return self.basic_tabs
         if self.tabs.currentIndex() == 1:
@@ -395,7 +413,7 @@ class Window(AdvancedForms, BillingForms, FinanceForms, StageForms, QMainWindow)
         return outer, content
 
     def basic_edited(self):
-        self.autosave.start()
+        self.input_activity.touch()
         self.message.setText('尚有變更；輸入完成後自動儲存')
 
     def capture_basic(self):
@@ -609,7 +627,7 @@ class Window(AdvancedForms, BillingForms, FinanceForms, StageForms, QMainWindow)
                 for key in LINKED_DATES: self.fields[key].clear()
         if self.session.dirty():
             self.message.setText('尚有變更，等待自動儲存…')
-            self.autosave.start()
+            self.input_activity.touch()
         self.update_actions()
 
     def current_page(self):
@@ -628,12 +646,14 @@ class Window(AdvancedForms, BillingForms, FinanceForms, StageForms, QMainWindow)
             return key or getattr(self,'_calendar_table_key','holidays')
         if self.tabs.currentIndex()==2:
             return PAYMENT_KEYS[self.billing_tabs.currentIndex()]
+        if self.tabs.currentIndex()==4:return 'deadline_tracking' if self.diary_tabs.currentIndex()==1 else 'diary'
         if self.tabs.currentIndex() in (3,4,5,6):
             return ['details','diary','documents','photos'][self.tabs.currentIndex()-3]
         return None
 
     def update_actions(self, *_):
         ready = self.session is not None and self.future is None and not getattr(self, 'archived', False)
+        self.print_button.setEnabled(self.session is not None and self.future is None)
         for key, widget in self.editors.items():
             editable=bool(ready and key in self.session.unlocked)
             widget.setEnabled(True)
@@ -653,7 +673,7 @@ class Window(AdvancedForms, BillingForms, FinanceForms, StageForms, QMainWindow)
         self.apply_advanced_locks(ready)
         key = self.current_page()
         self.undo_button.setEnabled(bool(ready and key and key in self.session.unlocked and self.session.history[key]))
-        self.save_button.setEnabled(ready)
+        self.save_button.setEnabled(self.session is not None and not self.archived)
 
     def toggle_lock(self, key):
         if key in ('holidays','makeup','railway'): self._calendar_table_key=key
@@ -721,6 +741,8 @@ class Window(AdvancedForms, BillingForms, FinanceForms, StageForms, QMainWindow)
         self.update_actions()
 
     def io(self, operation, success):
+        if self._auto_job is not None:
+            self._auto_after.append(lambda:self.io(operation,success));return
         if self.future is not None:
             return
         self.autosave.stop()
@@ -748,9 +770,28 @@ class Window(AdvancedForms, BillingForms, FinanceForms, StageForms, QMainWindow)
             if progress:
                 progress.reset();progress.deleteLater();self._asset_progress=None
         self.update_actions()
+        if getattr(self,'_manual_save_requested',False):
+            self._manual_save_requested=False
+            callback=getattr(self,'_manual_save_after',None);self._manual_save_after=None
+            self.save(after=callback)
 
     def save(self, auto=False, after=None):
+        if not auto:
+            self.autosave.stop()
+            focus=QApplication.focusWidget()
+            if focus and self.isAncestorOf(focus):focus.clearFocus()
+            self.capture_basic()
+        if self._auto_job is not None:
+            self._auto_after.append(lambda:self.save(auto=auto,after=after))
+            if not auto:self.message.setText('已要求立即儲存；等待目前寫入完成後接續儲存，不等待閒置計時')
+            return
+        if auto and after is None:
+            self.start_background_save();return
         if self.future is not None:
+            if not auto:
+                self._manual_save_requested=True
+                self._manual_save_after=after or getattr(self,'_manual_save_after',None)
+                self.message.setText('已要求立即儲存；目前操作結束後接續儲存')
             return
         if not self.session:
             if after:
@@ -1024,13 +1065,11 @@ class Window(AdvancedForms, BillingForms, FinanceForms, StageForms, QMainWindow)
                 self.io(lambda: self.store.export_report(path), lambda p: self.message.setText('報告匯出完成：' + p))
 
     def about(self):
-        box = QMessageBox(self)
-        box.setWindowTitle('關於 TRAADuoDuo')
-        box.setIconPixmap(QPixmap(str(ROOT / 'assets/app_icon.png')).scaled(96, 96, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        box.setText(f'{APP_NAME}\nTRAADuoDuo {VERSION}\n工期連動・工程費用・施工曆・工程計價\n正式圖示由使用者提供')
-        box.exec()
+        DesktopFeatures.about(self)
 
     def closeEvent(self, event):
+        if self._auto_job is not None:
+            event.ignore();self._auto_after.append(self.close);return
         if self.future is not None:
             event.ignore()
             self.message.setText('正在處理資料，完成後請再關閉')
@@ -1047,7 +1086,12 @@ class Window(AdvancedForms, BillingForms, FinanceForms, StageForms, QMainWindow)
                 event.ignore()
                 return
         self.autosave.stop()
+        self.deadline_timer.stop()
+        self.poll.stop()
+        if self.tray:self.tray.hide()
+        QApplication.instance().applicationStateChanged.disconnect(self._tracking_activation)
         QApplication.instance().removeEventFilter(self.layout_settings)
+        QApplication.instance().removeEventFilter(self.input_activity)
         self.pool.shutdown(wait=False)
         self.thumbnail_timer.stop();self.thumbnail_pool.shutdown(wait=False,cancel_futures=True)
         for ui in self.asset_ui.values():ui['pdf'].clear()

@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QGridLayout,QGrou
     QLineEdit,QComboBox,QPlainTextEdit,QCheckBox,QPushButton,QScrollArea,QDialog,QCalendarWidget,
     QDialogButtonBox,QStyle,QToolTip,QTableWidget,QApplication,QTextEdit)
 from .details import STATES, warranty_end
-from .presentation import MoneyField
+from .presentation import MoneyField,compact_header
 
 def show_info(parent,title,text):
     dialog=QDialog(parent); dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
@@ -30,6 +30,9 @@ def info_button(parent,label,hint):
 
 class ProjectTable(QTableWidget):
     focused=Signal()
+
+    def showEvent(self,event):
+        super().showEvent(event);compact_header(self.horizontalHeader());self.verticalHeader().setStyleSheet('QHeaderView::section {padding-top:0px;padding-bottom:0px;}')
 
     def focusInEvent(self,event):
         super().focusInEvent(event);self.focused.emit()

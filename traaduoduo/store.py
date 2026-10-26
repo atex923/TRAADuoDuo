@@ -10,7 +10,7 @@ from .details import normalize_pages
 from .billing import PAYMENT_KEYS
 
 APPLICATION_ID = 0x54524141
-PAGE_KEYS = {'basic', 'guarantees', 'costs', 'bids', 'holidays', 'makeup', 'railway', 'weather', *PAYMENT_KEYS,'details','diary','documents','photos'}
+PAGE_KEYS = {'basic', 'guarantees', 'costs', 'bids', 'holidays', 'makeup', 'railway', 'weather', *PAYMENT_KEYS,'details','diary','documents','photos','deadline_tracking'}
 DEFAULT_BASIC = {'name': '未命名工程', 'number': '', 'contract': '', 'contractor': '',
                  'award': '', 'signed': '', 'start': '', 'finish': '', 'days': '100', 'mode': '工作日'}
 
@@ -130,7 +130,7 @@ class ProjectStore:
                 conn.executemany(f'INSERT INTO {table} VALUES(?,?,?,?)',[(pid,r['id'],r['period'],json.dumps(r,ensure_ascii=False)) for r in rows])
         conn.execute('DELETE FROM admin_allocations WHERE project_id=?',(pid,))
         conn.executemany('INSERT INTO admin_allocations VALUES(?,?,?)',[(pid,a['stage'],json.dumps(a,ensure_ascii=False)) for a in pages['admin_payments']['allocations']])
-        conn.execute('UPDATE pages SET payload=? WHERE project_id=? AND page_id=?',(json.dumps({'available_basis':pages['admin_payments']['available_basis']}),pid,'billing_settings'))
+        conn.execute('UPDATE pages SET payload=? WHERE project_id=? AND page_id=?',(json.dumps({'available_basis':pages['admin_payments']['available_basis'],'allocation_revision':2}),pid,'billing_settings'))
 
     def add_project(self, name):
         with self.connect() as conn:

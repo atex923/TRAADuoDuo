@@ -5,11 +5,20 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont,QFontMetrics
 from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QGridLayout,QGroupBox,QLabel,QLineEdit,
     QCheckBox,QPushButton,QScrollArea,QComboBox,QTableWidgetItem,QAbstractItemView,QHeaderView,
-    QDialog,QDialogButtonBox,QMessageBox,QInputDialog,QBoxLayout)
+    QDialog,QDialogButtonBox,QMessageBox,QInputDialog,QBoxLayout,QSpinBox,QStyledItemDelegate)
 from .forms import DateField,ProjectTable,info_button
 from .finance import FIELDS,COPY_KEYS,DERIVED_COSTS,management_fee,percent,format_money,amount
 from .presentation import MoneyField,money,compact_field
 
+
+class CostMoneyDelegate(QStyledItemDelegate):
+    def displayText(self,value,locale):
+        try:return money(value)
+        except (ValueError,ArithmeticError):return str(value)
+    def setEditorData(self,editor,index):
+        text=str(index.data() or '')
+        raw=index.data(Qt.ItemDataRole.UserRole+1) if text==index.data(Qt.ItemDataRole.UserRole+2) else text
+        editor.setText(str(raw or '').replace(',',''))
 
 class FinanceForms:
     def build_costs(self):
@@ -64,7 +73,7 @@ class FinanceForms:
                 labels={'total':('總工程預算','總工程費用'),'award_total':('發包工程費預算','契約金額'),
                         'work':('發包工程','發包工程費金額'),'work_tax':('進項稅額','營業稅')}
                 label=labels.get(key,(label,label))[0 if kind=='budget' else 1]
-                field=QLineEdit(); field.setFixedWidth(220)
+                field=MoneyField(2); field.setFixedWidth(220)
                 field.setAlignment(Qt.AlignmentFlag.AlignRight); field.setStyleSheet('font-size:16pt;')
                 if key=='management_amount':
                     field=MoneyField(2);field.setFixedWidth(220);field.setAlignment(Qt.AlignmentFlag.AlignRight);field.setStyleSheet('font-size:16pt;')
@@ -76,10 +85,10 @@ class FinanceForms:
                 self.cost_fields[kind][key]=field
                 title_label=QLabel(label); title_label.setStyleSheet('font-size:16pt;')
                 grid.addWidget(title_label,row,0); grid.addWidget(field,row,1)
-                grid.addWidget(QLabel('元（含稅）' if key in ('total','award_total') else '元'),row,2)
-                if key in DERIVED_COSTS or key=='management_amount':
+                grid.addWidget(QLabel('(未稅)' if key=='unfinished' else '元（含稅）' if key in ('total','award_total') else '元'),row,2)
+                if key in DERIVED_COSTS or key=='management_amount' or (kind=='budget' and key=='award_total'):
                     field.setReadOnly(True)
-                    hint={'total':'未完工程＋未完工程進項稅額；關鍵來源未填則留空。','unfinished':'發包工程費預算／契約金額＋包工費以外。','other_fees':'空污費＋擴充項目；隱藏項目不改合計。','management_amount':'由下方調整後管理費連動。'}[key]
+                    hint={'total':'未完工程（未稅）＋未完工程進項稅額。','unfinished':'發包工程費預算／契約金額＋工程管理費＋包工費以外－未完工程進項稅額。','other_fees':'空污費＋擴充項目。','management_amount':'由下方調整後管理費連動。','award_total':'發包工程＋進項稅額；來源未填則留空。'}[key]
                     field.setToolTip(hint)
                     grid.addWidget(info_button(group,label,hint),row,3)
                 if kind=='contract' and key in COPY_KEYS:
@@ -98,6 +107,7 @@ class FinanceForms:
             toggle=QPushButton('隱藏擴充欄位'); self.extension_toggles[kind]=toggle; toggle.hide()
             toggle.clicked.connect(self.toggle_extensions)
             table=ProjectTable(0,4 if kind=='contract' else 3)
+            table.setItemDelegateForColumn(1,CostMoneyDelegate(table))
             table.setStyleSheet('font-size:16pt;')
             table.setHorizontalHeaderLabels(['項目名稱',title+'（元）']+(['複製'] if kind=='contract' else [])+['刪除'])
             table.horizontalHeader().setSectionResizeMode(0,QHeaderView.ResizeMode.Stretch)
@@ -132,7 +142,7 @@ class FinanceForms:
             field.textEdited.connect(self.basic_edited); field.editingFinished.connect(self.capture_costs)
             self.cost_fields[kind]['management_adjustment']=field
             grid.addWidget(check,7,0,1,2); grid.addWidget(QLabel('調整後合計（元）'),8,0); grid.addWidget(field,8,1)
-        boxes.addWidget(QLabel('未提供發包基數時不計管理費；其他未填的基數項目按 0 計。預設向下截至千元，手動值不隨基數變動覆寫。'))
+        boxes.addWidget(QLabel('管理費基數＝包工費＋自辦工費＋自購材料費＋路備材料費＋路購材料費；包工費未填不計。預設截千元，保留人工調整。'))
         scroll.setWidget(body); layout.addWidget(scroll)
 
     def toggle_extensions(self):
@@ -151,8 +161,8 @@ class FinanceForms:
         for kind in ('budget','contract'):
             previous=value[kind].copy()
             for key,field in self.cost_fields[kind].items():
-                if key not in (*DERIVED_COSTS,'management_amount','management_adjustment'):
-                    value[kind][key]=field.text().replace(',','').strip()
+                if key not in (*DERIVED_COSTS,'management_amount','management_adjustment') and not (kind=='budget' and key=='award_total'):
+                    value[kind][key]=field.value() if isinstance(field,MoneyField) else field.text().replace(',','').strip()
             manual=self.fee_manual[kind].isChecked()
             adjustment=self.cost_fields[kind]['management_adjustment'].value()
             if not manual:
@@ -200,6 +210,7 @@ class FinanceForms:
                     try: text=item[key] if col==0 else format_money(item[key])
                     except (ValueError,ArithmeticError): text=item[key]
                     cell=QTableWidgetItem(text); cell.setData(Qt.ItemDataRole.UserRole,item['id'])
+                    cell.setData(Qt.ItemDataRole.UserRole+1,item[key]);cell.setData(Qt.ItemDataRole.UserRole+2,text)
                     if col==1: cell.setTextAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter)
                     table.setItem(row,col,cell)
                 if kind=='contract':
@@ -233,7 +244,7 @@ class FinanceForms:
             for col,key in enumerate(('label',kind)):
                 cell=self.extension_tables[kind].item(row,col)
                 if cell:
-                    item[key]=cell.text().replace(',','').strip() if col else cell.text()
+                    item[key]=(cell.data(Qt.ItemDataRole.UserRole+1) if cell.text()==cell.data(Qt.ItemDataRole.UserRole+2) else cell.text().replace(',','').strip()) if col else cell.text()
         self.session.change('costs',value)
         # Keep the active delegate/editor alive while synchronizing shared names.
         self.loading=True
@@ -262,7 +273,8 @@ class FinanceForms:
         self.extension_ui_visible=self.session.pages['costs'].get('extensions_visible',True)
         for kind in ('budget','contract'):
             for key,field in self.cost_fields[kind].items():
-                field.setText(format_money(self.session.pages['costs'][kind][key]))
+                raw=self.session.pages['costs'][kind][key]
+                field.setText(raw if isinstance(field,MoneyField) else format_money(raw))
             self.fee_manual[kind].setChecked(self.session.pages['costs'][kind]['management_manual'])
         self.guarantee_base_combo.setCurrentIndex(self.guarantee_base_combo.findData(self.session.pages['costs']['guarantee_base']))
         self.copy_source_combo.setCurrentIndex(self.copy_source_combo.findData(self.session.pages['costs']['own_labor_copy']))
@@ -279,12 +291,12 @@ class FinanceForms:
                 numbers=[result['source'],*result['tiers'],result['total']] if result else [None]*7
                 for label,number in zip(self.fee_labels[kind],numbers):
                     label.setText('—' if number is None else money(number))
-                self.cost_fields[kind]['management_amount'].setText(format_money(value[kind]['management_amount']))
+                self.cost_fields[kind]['management_amount'].setText(value[kind]['management_amount'])
                 for key in DERIVED_COSTS-{'non_labor'}:
-                    self.cost_fields[kind][key].setText(format_money(value[kind][key]))
+                    self.cost_fields[kind][key].setText(value[kind][key])
                 self.non_labor_labels[kind].setText(format_money(value[kind]['non_labor']))
                 if not value[kind]['management_manual']:
-                    self.cost_fields[kind]['management_adjustment'].setText(format_money(str(result['default'])) if result else '')
+                    self.cost_fields[kind]['management_adjustment'].setText(str(result['default']) if result else '')
             self.ratio_label.setText('決標／預算 '+percent(value['contract']['award_total'],value['budget']['award_total'])+'　決標／底價 '+percent(value['contract']['award_total'],value['contract']['base_price'])+'　底價／預算 '+percent(value['contract']['base_price'],value['budget']['award_total']))
         except (ValueError,ArithmeticError):
             self.ratio_label.setText('請修正金額後再計算')
@@ -318,7 +330,7 @@ class FinanceForms:
         editable=bool(ready and 'costs' in self.session.unlocked)
         for kind,fields in self.cost_fields.items():
             for key,field in fields.items():
-                field.setReadOnly(not editable or key in DERIVED_COSTS or key=='management_amount' or (key=='management_adjustment' and not self.fee_manual[kind].isChecked()))
+                field.setReadOnly(not editable or key in DERIVED_COSTS or key=='management_amount' or (kind=='budget' and key=='award_total') or (key=='management_adjustment' and not self.fee_manual[kind].isChecked()))
             self.fee_manual[kind].setEnabled(editable)
         for widget in [self.guarantee_base_combo,self.copy_source_combo,*self.cost_buttons]:
             widget.setEnabled(editable)
@@ -377,7 +389,7 @@ class FinanceForms:
             return
         existing=deepcopy(row) if row else dict(id=uuid.uuid4().hex,number=max((r['number'] for r in self.session.pages['bids']),default=0)+1,awarded=False,review_start='',review_end='',online_start='',online_end='',opening='',committee='',award_date='')
         dialog=QDialog(self); dialog.setWindowTitle('招標資料'); box=QVBoxLayout(dialog)
-        box.addWidget(QLabel('次數：'+str(existing['number'])+'（自動編號）'))
+        box.addWidget(QLabel('次數'));bid_number=QSpinBox();bid_number.setObjectName('bid-number');bid_number.setRange(1,999999999);bid_number.setValue(existing['number']);box.addWidget(bid_number)
         fields={}; grid=QGridLayout(); box.addLayout(grid)
         for index,(key,label) in enumerate([('review_start','公開閱覽起日'),('review_end','公開閱覽迄日'),('online_start','公開上網起日'),('online_end','公開上網迄日'),('opening','開標日'),('committee','評選委員會'),('award_date','決標公告日')]):
             field=DateField(); field.setText(existing[key]); fields[key]=field
@@ -389,7 +401,7 @@ class FinanceForms:
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Save|QDialogButtonBox.StandardButton.Cancel)
         box.addWidget(buttons); buttons.rejected.connect(dialog.reject)
         def submit():
-            candidate=dict(existing,**{k:f.text() for k,f in fields.items()},awarded=awarded.isChecked())
+            candidate=dict(existing,**{k:f.text() for k,f in fields.items()},number=bid_number.value(),awarded=awarded.isChecked())
             if self.submit_bid(candidate):
                 dialog.accept()
         buttons.accepted.connect(submit)
